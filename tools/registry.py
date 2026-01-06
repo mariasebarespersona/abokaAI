@@ -745,7 +745,9 @@ def send_armario_document_email_tool(property_id: str, document_id: str, to_emai
         storage_path = doc["storage_path"]
         logger.info(f"[send_armario_document_email] Downloading from storage: {storage_path}")
         
-        download_result = sb.storage.from_("documents").download(storage_path)
+        # Use the correct bucket name (property-docs, not documents)
+        from tools.supabase_client import BUCKET
+        download_result = sb.storage.from_(BUCKET).download(storage_path)
         
         if not download_result:
             return {"ok": False, "error": "No se pudo descargar el documento del almacenamiento"}
