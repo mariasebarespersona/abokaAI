@@ -86,16 +86,20 @@ export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboar
           let totalFields = 0;
 
           items.forEach((item: any) => {
-            if (item.item_key && !item.item_key.includes('_total')) {
+            // API returns: key, estimado, real, category
+            if (item.key && !item.key.includes('_total')) {
               totalFields++;
-              if (item.estimated_amount || item.real_amount) {
+              if (item.estimado || item.real) {
                 filledFields++;
               }
               
+              // Use estimado for summary, fallback to real if no estimate
+              const value = item.estimado || item.real || 0;
+              
               if (item.category === 'VENTA') {
-                totalIngresos += (item.estimated_amount || 0);
+                totalIngresos += value;
               } else {
-                totalGastos += (item.estimated_amount || 0);
+                totalGastos += value;
               }
             }
           });
