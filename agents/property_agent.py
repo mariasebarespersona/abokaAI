@@ -2,38 +2,35 @@
 PropertyAgent (Aboka AI) - Specialized agent for Renovation Management.
 
 Handles:
-- Property creation and management
-- Document management (upload, list, query)
-- Financial tracking (Numbers Table)
+- Property management
+- Estudio Económico (financial tracking)
+- Armario Digital (document management)
+- Document extraction and approval
+- RAG queries on documents
+- Email sending of documents
 """
 
 from typing import List
 from .base_agent import BaseAgent
 from tools.registry import (
-    # Property tools (NOTE: add_property_tool removed - property creation is only through UI flow)
+    # Property tools
     set_current_property_tool,
     list_properties_tool,
     delete_property_tool,
     find_property_tool,
     get_property_tool,
     update_property_fields_tool,
-    # Financial tools - Estudio Económico
+    # Estudio Económico (financial)
     update_estudio_economico_tool,
     get_estudio_economico_tool,
-    # Document tools
-    upload_and_link_tool,
-    list_docs_tool,
-    delete_document_tool,
-    signed_url_for_tool,
-    send_email_tool,
-    get_document_for_email_tool,
-    # Armario Digital tools (search & email)
-    search_armario_documents_tool,
-    send_armario_document_email_tool,
-    # RAG tools
+    # Armario Digital - Document Management
+    search_armario_documents_tool,      # Search docs by name
+    send_armario_document_email_tool,   # Send doc by email
+    list_armario_tool,                  # List all docs in armario
+    get_armario_summary_tool,           # Get completion stats
+    # RAG - Document queries
     query_documents_tool,
-    index_all_documents_maninos_tool,
-    # Document Extraction tools
+    # Document Extraction (auto-extract values from invoices)
     get_pending_extractions_tool,
     approve_extraction_tool,
     reject_extraction_tool,
@@ -164,36 +161,40 @@ class PropertyAgent(BaseAgent):
         return result
     
     def get_tools(self) -> List:
-        """Return all renovation management tools.
-        NOTE: add_property_tool is NOT included - property creation only via UI 'New Evaluation' button.
+        """Return ABOKA AI tools for renovation management.
+        
+        Tools organized by function:
+        - Property: get, list, find, delete, update
+        - Estudio Económico: get, update (financial tracking)
+        - Armario Digital: search, list, summary, send email
+        - RAG: query documents
+        - Extraction: get pending, approve, reject, format
         """
         return [
-            # Property management (add_property removed - use UI flow)
+            # ═══ PROPERTY MANAGEMENT ═══
             set_current_property_tool,
             list_properties_tool,
             delete_property_tool,
             find_property_tool,
             get_property_tool,
             update_property_fields_tool,
-            # Financial tools - Estudio Económico
+            
+            # ═══ ESTUDIO ECONÓMICO (Financial) ═══
             update_estudio_economico_tool,
             get_estudio_economico_tool,
-            # Documents
-            upload_and_link_tool,
-            list_docs_tool,
-            delete_document_tool,
-            signed_url_for_tool,
-            send_email_tool,
-            get_document_for_email_tool,
-            # Armario Digital (search & email)
-            search_armario_documents_tool,
-            send_armario_document_email_tool,
-            # RAG Tools
-            query_documents_tool,
-            index_all_documents_maninos_tool,
-            # Document Extraction (ABOKA)
-            get_pending_extractions_tool,
-            approve_extraction_tool,
-            reject_extraction_tool,
-            format_extraction_proposal_tool,
+            
+            # ═══ ARMARIO DIGITAL (Documents) ═══
+            search_armario_documents_tool,      # Search by name → returns document_id
+            send_armario_document_email_tool,   # Send doc by email (needs document_id)
+            list_armario_tool,                  # List all docs in a cajón
+            get_armario_summary_tool,           # Get completion stats per cajón
+            
+            # ═══ RAG (Document Queries) ═══
+            query_documents_tool,               # Ask questions about document content
+            
+            # ═══ DOCUMENT EXTRACTION ═══
+            get_pending_extractions_tool,       # Check for values extracted from invoices
+            approve_extraction_tool,            # Approve → adds value to Excel (Real)
+            reject_extraction_tool,             # Reject extracted value
+            format_extraction_proposal_tool,    # Format proposal for display
         ]

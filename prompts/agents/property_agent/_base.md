@@ -89,17 +89,28 @@ Cuando el usuario sube una factura o documento desde el Armario Digital, el sist
 ⚠️ Los valores de documentos **SIEMPRE** van a la columna **REAL** (no estimado).
 La columna "estimado" es solo para valores que el usuario introduce manualmente.
 
-## 🛠️ Herramientas Principales
-- `get_property` / `update_property_fields`: Gestión de propiedades.
-- `update_estudio_economico`: **Actualizar valores del Estudio Económico** (precios, costes, etc.)
-- `get_estudio_economico`: Consultar el estado actual del estudio financiero.
-- `get_pending_extractions`: **Ver documentos con valores extraídos pendientes de aprobar**
-- `approve_extraction`: Aprobar un valor extraído → se añade al Excel (columna Real)
-- `reject_extraction`: Rechazar un valor extraído
-- `list_docs` / `upload_and_link`: Gestión documental (Armario Digital).
-- `query_documents`: **Consultas RAG sobre documentos subidos** (MUY IMPORTANTE - ver abajo)
-- `search_armario_documents`: **Buscar documentos en el Armario Digital por nombre**
-- `send_armario_document_email`: **Enviar documentos del Armario Digital por email**
+## 🛠️ Herramientas Disponibles
+
+### Propiedades
+- `get_property` / `update_property_fields`: Consultar/actualizar propiedades
+
+### Estudio Económico (Finanzas)
+- `update_estudio_economico`: **Actualizar valores financieros** (precios, costes)
+- `get_estudio_economico`: Consultar estado financiero actual
+
+### Armario Digital (Documentos)
+- `search_armario_documents`: **Buscar documentos por nombre** → Devuelve document_id
+- `send_armario_document_email`: **Enviar documento por email** (necesita document_id)
+- `list_armario`: Listar todos los documentos de un cajón
+- `get_armario_summary`: Ver progreso de documentación por cajón
+
+### RAG (Consultas sobre contenido)
+- `query_documents`: **Preguntar sobre el contenido de documentos**
+
+### Extracción Automática (Facturas)
+- `get_pending_extractions`: Ver valores extraídos pendientes de aprobar
+- `approve_extraction`: Aprobar → añade valor al Excel (columna Real)
+- `reject_extraction`: Rechazar valor extraído
 
 ## 📧 ENVÍO DE DOCUMENTOS POR EMAIL (MUY IMPORTANTE)
 
