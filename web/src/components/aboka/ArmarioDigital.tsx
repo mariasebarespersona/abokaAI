@@ -23,7 +23,9 @@ import {
   Landmark,
   Receipt,
   Store,
-  Flag
+  Flag,
+  Mail,
+  Send
 } from 'lucide-react';
 
 // Error Boundary to catch React rendering errors
@@ -183,6 +185,11 @@ function ArmarioDigitalContent({ propertyId, propertyName, onDocumentUploaded }:
   // Extraction proposal modal state
   const [extractionProposal, setExtractionProposal] = useState<ExtractionProposal | null>(null);
   const [isApproving, setIsApproving] = useState(false);
+  
+  // Email modal state
+  const [emailModalDoc, setEmailModalDoc] = useState<ArmarioDocument | null>(null);
+  const [emailAddress, setEmailAddress] = useState('');
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
   
   // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = React.useRef(true);
@@ -519,6 +526,58 @@ function ArmarioDigitalContent({ propertyId, propertyName, onDocumentUploaded }:
     }
   };
 
+  // Handle sending document by email
+  const handleSendEmail = async () => {
+    if (!emailModalDoc || !propertyId || !emailAddress || !isMountedRef.current) return;
+    
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailAddress)) {
+      setError('Por favor, introduce un email válido');
+      return;
+    }
+    
+    setIsSendingEmail(true);
+    
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/armario/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          property_id: propertyId,
+          document_id: emailModalDoc.id,
+          cajon: emailModalDoc.cajon,
+          subcajon: emailModalDoc.subcajon,
+          document_name: emailModalDoc.document_name,
+          to_email: emailAddress,
+          property_name: propertyName || 'Propiedad'
+        })
+      });
+      
+      if (!isMountedRef.current) return;
+      
+      const json = await res.json();
+      
+      if (json.ok) {
+        // Success - close modal
+        setEmailModalDoc(null);
+        setEmailAddress('');
+        alert(`✅ Documento enviado correctamente a ${emailAddress}`);
+      } else {
+        throw new Error(json.error || 'Error al enviar el email');
+      }
+      
+    } catch (err: any) {
+      if (isMountedRef.current) {
+        setError(err.message || 'Error al enviar el documento por email');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsSendingEmail(false);
+      }
+    }
+  };
+
   // Handle extraction approval - adds extracted value to Excel "Real" column
   const handleApproveExtraction = async () => {
     if (!extractionProposal || !propertyId || !isMountedRef.current) return;
@@ -709,6 +768,13 @@ function ArmarioDigitalContent({ propertyId, propertyName, onDocumentUploaded }:
                 <Eye size={14} />
               </button>
               <button
+                onClick={() => setEmailModalDoc(doc)}
+                className="p-1.5 rounded-lg hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition-colors"
+                title="Enviar por email"
+              >
+                <Mail size={14} />
+              </button>
+              <button
                 onClick={() => handleDeleteDocument(doc)}
                 className="p-1.5 rounded-lg hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors"
                 title="Eliminar documento"
@@ -878,6 +944,85 @@ function ArmarioDigitalContent({ propertyId, propertyName, onDocumentUploaded }:
                     <>
                       <CheckCircle size={16} />
                       Añadir al Excel
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Email Modal */}
+      {emailModalDoc && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-500 to-indigo-600 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+                  <Mail size={20} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Enviar por Email</h3>
+                  <p className="text-blue-100 text-sm truncate max-w-[250px]">{emailModalDoc.document_name}</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Dirección de email
+                  </label>
+                  <input
+                    type="email"
+                    value={emailAddress}
+                    onChange={(e) => setEmailAddress(e.target.value)}
+                    placeholder="ejemplo@email.com"
+                    className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    autoFocus
+                  />
+                </div>
+                
+                <div className="p-3 bg-slate-50 rounded-lg">
+                  <p className="text-sm text-slate-600">
+                    <span className="font-medium">Documento:</span> {emailModalDoc.original_filename || emailModalDoc.document_name}
+                  </p>
+                  <p className="text-sm text-slate-600">
+                    <span className="font-medium">Propiedad:</span> {propertyName || 'Sin nombre'}
+                  </p>
+                </div>
+              </div>
+              
+              {/* Actions */}
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setEmailModalDoc(null);
+                    setEmailAddress('');
+                  }}
+                  disabled={isSendingEmail}
+                  className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors font-medium disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSendEmail}
+                  disabled={isSendingEmail || !emailAddress}
+                  className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSendingEmail ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      Enviando...
+                    </>
+                  ) : (
+                    <>
+                      <Send size={16} />
+                      Enviar
                     </>
                   )}
                 </button>

@@ -3,9 +3,10 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { PropertiesDrawer } from '@/components/PropertiesDrawer'
 import { HomeProperty } from '@/types/maninos'
-import { Menu, Building2, FileSpreadsheet, FolderOpen } from 'lucide-react'
+import { Menu, Building2, FileSpreadsheet, FolderOpen, LayoutDashboard } from 'lucide-react'
 import { AbokaExcel } from '@/components/aboka/AbokaExcel'
 import { ArmarioDigital } from '@/components/aboka/ArmarioDigital'
+import { PropertyDashboard } from '@/components/aboka/PropertyDashboard'
 import { ChatPanel } from '@/components/ChatPanel'
 
 // We need to fetch properties to pass to the Drawer
@@ -22,8 +23,8 @@ export default function AbokaWorkspace() {
   // Property Creation Mode - only active when "New Evaluation" is clicked
   const [isCreatingProperty, setIsCreatingProperty] = useState(false)
   
-  // Active Panel Tab: 'excel' or 'docs'
-  const [activePanel, setActivePanel] = useState<'excel' | 'docs'>('excel')
+  // Active Panel Tab: 'dashboard', 'excel' or 'docs'
+  const [activePanel, setActivePanel] = useState<'dashboard' | 'excel' | 'docs'>('dashboard')
   
   // Refresh key - changes when chat updates financial data
   const [excelRefreshKey, setExcelRefreshKey] = useState(0)
@@ -121,6 +122,17 @@ export default function AbokaWorkspace() {
           {/* Tab Navigation */}
           <div className="flex items-center gap-1 px-4 pt-4 pb-2 bg-white border-b border-slate-100">
             <button
+              onClick={() => setActivePanel('dashboard')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activePanel === 'dashboard'
+                  ? 'bg-slate-800 text-white shadow-lg shadow-slate-500/25'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <LayoutDashboard size={16} />
+              Dashboard
+            </button>
+            <button
               onClick={() => setActivePanel('excel')}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activePanel === 'excel'
@@ -157,7 +169,12 @@ export default function AbokaWorkspace() {
           {/* Panel Content */}
           <div className="flex-1 p-4 overflow-hidden">
             {selectedPropertyId ? (
-              activePanel === 'excel' ? (
+              activePanel === 'dashboard' ? (
+                <PropertyDashboard 
+                  propertyId={selectedPropertyId}
+                  propertyName={selectedPropertyName}
+                />
+              ) : activePanel === 'excel' ? (
                 <AbokaExcel propertyId={selectedPropertyId} key={`excel-${excelRefreshKey}`} />
               ) : (
                 <ArmarioDigital 

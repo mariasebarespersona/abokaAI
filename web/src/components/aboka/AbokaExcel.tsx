@@ -5,8 +5,9 @@ import {
   Save, RefreshCw, TrendingUp, TrendingDown, DollarSign, 
   Home, Hammer, Landmark, Receipt, Store, Flag,
   ChevronDown, ChevronRight, Calculator, Percent,
-  Building, FileText
+  Building, FileText, Download
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -330,6 +331,77 @@ export function AbokaExcel({ propertyId, onCellUpdate }: AbokaExcelProps) {
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // Export to Excel
+  // ─────────────────────────────────────────────────────────────────────────────
+  const downloadExcel = useCallback(() => {
+    // Prepare data for Excel
+    const excelData: any[][] = [];
+    
+    // Header row
+    excelData.push(['ESTUDIO ECONÓMICO - ABOKA AI']);
+    excelData.push([]);
+    excelData.push(['Concepto', 'Estimación (€)', 'Real (€)']);
+    
+    // Add items by category
+    CATEGORY_ORDER.forEach(category => {
+      const categoryItems = calculatedItems.filter(item => item.category === category);
+      const config = CATEGORY_CONFIG[category];
+      
+      // Category header
+      excelData.push([]);
+      excelData.push([`${category} - ${config.label}`, '', '']);
+      
+      // Items
+      categoryItems.forEach(item => {
+        if (item.isFormula) {
+          excelData.push([
+            `  >> ${item.label}`,
+            item.estimado || 0,
+            item.real || 0
+          ]);
+        } else {
+          excelData.push([
+            `  ${item.label}`,
+            item.estimado || 0,
+            item.real || 0
+          ]);
+        }
+      });
+    });
+    
+    // Summary section
+    excelData.push([]);
+    excelData.push(['RESUMEN', '', '']);
+    excelData.push(['Total Gastos', summary.totalGastos, summary.totalGastosReal]);
+    excelData.push(['Total Ingresos', summary.totalIngresos, summary.totalIngresosReal]);
+    excelData.push(['Beneficio Bruto', summary.beneficioBruto, summary.beneficioBrutoReal]);
+    excelData.push(['Honorarios ABOKA (20%)', summary.honorariosAboka, summary.honorariosAbokaReal]);
+    excelData.push(['Beneficio Neto', summary.beneficioNeto, summary.beneficioNetoReal]);
+    excelData.push(['ROI %', `${summary.roi.toFixed(2)}%`, `${summary.roiReal.toFixed(2)}%`]);
+    
+    // Create workbook and worksheet
+    const wb = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+    
+    // Set column widths
+    worksheet['!cols'] = [
+      { wch: 40 }, // Concepto
+      { wch: 18 }, // Estimación
+      { wch: 18 }, // Real
+    ];
+    
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(wb, worksheet, 'Estudio Económico');
+    
+    // Generate filename with date
+    const date = new Date().toISOString().split('T')[0];
+    const filename = `estudio_economico_${date}.xlsx`;
+    
+    // Download
+    XLSX.writeFile(wb, filename);
+  }, [calculatedItems, summary]);
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Format helpers
   // ─────────────────────────────────────────────────────────────────────────────
   const formatCurrency = (val: number | null) => {
@@ -407,13 +479,23 @@ export function AbokaExcel({ propertyId, onCellUpdate }: AbokaExcelProps) {
               <p className="text-xs text-slate-500">Análisis de inversión inmobiliaria</p>
             </div>
         </div>
-          <button 
-            onClick={() => initializeTemplate()}
-            className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-            title="Reiniciar plantilla"
-          >
-            <RefreshCw size={16} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={downloadExcel}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-600 hover:text-emerald-700 transition-colors text-sm font-medium"
+              title="Descargar Excel"
+            >
+              <Download size={14} />
+              <span>Excel</span>
+            </button>
+            <button 
+              onClick={() => initializeTemplate()}
+              className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+              title="Reiniciar plantilla"
+            >
+              <RefreshCw size={16} />
+            </button>
+          </div>
         </div>
       </div>
 

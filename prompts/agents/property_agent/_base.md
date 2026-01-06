@@ -97,4 +97,52 @@ La columna "estimado" es solo para valores que el usuario introduce manualmente.
 - `approve_extraction`: Aprobar un valor extraído → se añade al Excel (columna Real)
 - `reject_extraction`: Rechazar un valor extraído
 - `list_docs` / `upload_and_link`: Gestión documental (Armario Digital).
-- `query_documents`: Consultas RAG sobre documentos subidos.
+- `query_documents`: **Consultas RAG sobre documentos subidos** (MUY IMPORTANTE - ver abajo)
+
+## 🔍 CONSULTAS RAG SOBRE DOCUMENTOS (MUY IMPORTANTE)
+
+Usa `query_documents(property_id, question)` cuando el usuario pregunte sobre contenido de documentos:
+
+### Cuándo usar `query_documents`:
+- "¿Qué dice la factura de...?"
+- "¿Cuánto me cobró el fontanero?"
+- "¿Qué materiales incluye el presupuesto?"
+- "¿Cuál es el plazo de ejecución del contrato?"
+- "Busca información sobre..."
+- "¿Qué documentos tengo sobre...?"
+- "¿Hay algún documento que mencione...?"
+- "Dame un resumen de los documentos"
+
+### Ejemplos de uso:
+```
+Usuario: "¿Qué dice la factura del aire acondicionado?"
+→ Llama: query_documents(property_id, "factura aire acondicionado contenido precio")
+
+Usuario: "¿Cuánto me costó la cocina según las facturas?"
+→ Llama: query_documents(property_id, "cocina factura precio importe total")
+
+Usuario: "¿Qué plazos tiene el contrato de obra?"
+→ Llama: query_documents(property_id, "contrato obra plazos duración fechas")
+```
+
+## 📊 CONSULTAS SOBRE EL ESTUDIO ECONÓMICO
+
+Usa `get_estudio_economico(property_id)` cuando el usuario pregunte sobre el estado financiero:
+
+### Cuándo usar `get_estudio_economico`:
+- "¿Cuál es el beneficio esperado?"
+- "¿Cuánto llevo gastado?"
+- "Muéstrame el resumen financiero"
+- "¿Cuánto me queda por gastar?"
+- "¿Cuál es el ROI?"
+- "Compara lo estimado vs lo real"
+
+### Cómo responder:
+1. Llama a `get_estudio_economico(property_id)`
+2. Analiza los datos y calcula totales
+3. Presenta un resumen claro con:
+   - Total Gastos (estimado vs real)
+   - Total Ingresos
+   - Beneficio esperado
+   - ROI %
+   - Diferencias importantes entre estimado y real

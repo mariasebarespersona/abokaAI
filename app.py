@@ -3414,6 +3414,131 @@ async def delete_armario_document(request: Request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
+@app.post("/api/armario/send-email")
+async def send_armario_document_email(request: Request):
+    """
+    Send a document from the Armario Digital via email.
+    
+    Requires: property_id, document_id, to_email
+    Optional: property_name (for email subject)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        from tools.supabase_client import sb
+        from tools.email_tool import send_email
+        
+        body = await request.json()
+        property_id = body.get("property_id")
+        document_id = body.get("document_id")
+        to_email = body.get("to_email")
+        property_name = body.get("property_name", "Propiedad")
+        
+        # Validate required fields
+        if not property_id:
+            return JSONResponse(
+                {"ok": False, "error": "property_id is required"},
+                status_code=400
+            )
+        
+        if not document_id:
+            return JSONResponse(
+                {"ok": False, "error": "document_id is required"},
+                status_code=400
+            )
+        
+        if not to_email:
+            return JSONResponse(
+                {"ok": False, "error": "to_email is required"},
+                status_code=400
+            )
+        
+        logger.info(f"[API] POST /api/armario/send-email: document_id={document_id}, to={to_email}")
+        
+        # Get the document
+        doc_result = sb.table("armario_documents")\
+            .select("id, document_name, original_filename, storage_path, is_uploaded, property_id")\
+            .eq("id", document_id)\
+            .eq("property_id", property_id)\
+            .single()\
+            .execute()
+        
+        if not doc_result.data:
+            logger.warning(f"[API] Document {document_id} not found for property {property_id}")
+            return JSONResponse(
+                {"ok": False, "error": "Document not found for this property"},
+                status_code=404
+            )
+        
+        doc = doc_result.data
+        
+        if not doc.get("is_uploaded") or not doc.get("storage_path"):
+            return JSONResponse(
+                {"ok": False, "error": "Document has not been uploaded yet"},
+                status_code=400
+            )
+        
+        storage_path = doc["storage_path"]
+        original_filename = doc.get("original_filename", doc["document_name"])
+        
+        # Download the file from storage
+        try:
+            file_response = sb.storage.from_("property-docs").download(storage_path)
+            file_bytes = file_response
+            logger.info(f"[API] Downloaded file: {storage_path}, size: {len(file_bytes)} bytes")
+        except Exception as download_err:
+            logger.error(f"[API] Error downloading file: {download_err}")
+            return JSONResponse(
+                {"ok": False, "error": f"Error downloading file: {str(download_err)}"},
+                status_code=500
+            )
+        
+        # Send email with attachment
+        subject = f"Documento: {doc['document_name']} - {property_name}"
+        html_content = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #1e293b;">📄 Documento de {property_name}</h2>
+            <p style="color: #475569;">Se adjunta el documento solicitado:</p>
+            <div style="background: #f1f5f9; padding: 16px; border-radius: 8px; margin: 16px 0;">
+                <p style="margin: 0; color: #334155;"><strong>Documento:</strong> {doc['document_name']}</p>
+                <p style="margin: 8px 0 0; color: #334155;"><strong>Archivo:</strong> {original_filename}</p>
+            </div>
+            <p style="color: #64748b; font-size: 14px;">
+                Enviado desde ABOKA AI - Armario Digital
+            </p>
+        </div>
+        """
+        
+        try:
+            result = send_email(
+                to=[to_email],
+                subject=subject,
+                html=html_content,
+                attachments=[(original_filename, file_bytes)]
+            )
+            
+            if result.get("ok"):
+                logger.info(f"[API] ✅ Email sent successfully to {to_email}")
+                return JSONResponse({
+                    "ok": True,
+                    "message": f"Email sent to {to_email}"
+                })
+            else:
+                raise Exception(result.get("error", "Unknown email error"))
+                
+        except Exception as email_err:
+            logger.error(f"[API] Error sending email: {email_err}")
+            return JSONResponse(
+                {"ok": False, "error": f"Error sending email: {str(email_err)}"},
+                status_code=500
+            )
+        
+    except Exception as e:
+        logger.error(f"[API] Error in send-email endpoint: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
 @app.post("/api/armario/approve-extraction")
 async def approve_extraction_api(request: Request):
     """
