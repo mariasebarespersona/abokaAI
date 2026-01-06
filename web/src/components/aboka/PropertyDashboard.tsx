@@ -59,9 +59,18 @@ export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboar
         // Fetch Armario summary
         const armarioRes = await fetch(`${BACKEND_URL}/api/armario/${propertyId}/summary`);
         const armarioJson = await armarioRes.json();
-        if (armarioJson.ok !== false) {
-          setArmarioSummary(armarioJson.summary || armarioJson || []);
+        console.log('[PropertyDashboard] Armario summary response:', armarioJson);
+        
+        // Handle different response formats
+        let summaryData: ArmarioSummary[] = [];
+        if (Array.isArray(armarioJson)) {
+          summaryData = armarioJson;
+        } else if (armarioJson.summary && Array.isArray(armarioJson.summary)) {
+          summaryData = armarioJson.summary;
+        } else if (armarioJson.ok && armarioJson.data && Array.isArray(armarioJson.data)) {
+          summaryData = armarioJson.data;
         }
+        setArmarioSummary(summaryData);
 
         // Fetch Estudio Económico summary
         const estudioRes = await fetch(`${BACKEND_URL}/api/estudio/${propertyId}`);
@@ -112,8 +121,8 @@ export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboar
     fetchData();
   }, [propertyId, BACKEND_URL]);
 
-  // Calculate totals from armario summary
-  const armarioTotals = armarioSummary.reduce(
+  // Calculate totals from armario summary (with safety check)
+  const armarioTotals = (Array.isArray(armarioSummary) ? armarioSummary : []).reduce(
     (acc, item) => ({
       total: acc.total + (item.total_docs || 0),
       uploaded: acc.uploaded + (item.uploaded_docs || 0),
@@ -270,7 +279,7 @@ export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboar
           Documentos por Categoría
         </h3>
         <div className="grid grid-cols-3 gap-3">
-          {armarioSummary.map((category) => {
+          {(Array.isArray(armarioSummary) ? armarioSummary : []).map((category) => {
             const percent = category.required_docs > 0
               ? (category.required_uploaded / category.required_docs) * 100
               : 0;
