@@ -28,8 +28,7 @@ from tools.registry import (
     send_armario_document_email_tool,   # Send doc by email
     list_armario_tool,                  # List all docs in armario
     get_armario_summary_tool,           # Get completion stats
-    # RAG - Document queries
-    query_documents_tool,
+    query_armario_document_tool,        # RAG - Ask questions about document content
     # Document Extraction (auto-extract values from invoices)
     get_pending_extractions_tool,
     approve_extraction_tool,
@@ -188,9 +187,7 @@ class PropertyAgent(BaseAgent):
             send_armario_document_email_tool,   # Send doc by email (needs document_id)
             list_armario_tool,                  # List all docs in a cajón
             get_armario_summary_tool,           # Get completion stats per cajón
-            
-            # ═══ RAG (Document Queries) ═══
-            query_documents_tool,               # Ask questions about document content
+            query_armario_document_tool,        # RAG - Ask questions about document content
             
             # ═══ DOCUMENT EXTRACTION ═══
             get_pending_extractions_tool,       # Check for values extracted from invoices

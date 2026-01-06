@@ -784,6 +784,197 @@ def send_armario_document_email_tool(property_id: str, document_id: str, to_emai
         return {"ok": False, "error": str(e)}
 
 
+class QueryArmarioDocumentInput(BaseModel):
+    property_id: str = Field(..., description="Property UUID")
+    search_term: str = Field(..., description="Document name or keywords to search")
+    question: str = Field(..., description="Question about the document content")
+
+@tool("query_armario_document")
+def query_armario_document_tool(property_id: str, search_term: str, question: str) -> Dict:
+    """Ask a question about a document in the Armario Digital.
+    
+    This tool searches for a document, downloads it, extracts the text, and answers your question.
+    
+    IMPORTANT: Use this for questions about document CONTENT like:
+    - "¿Qué dice la factura del aire acondicionado?"
+    - "¿Cuánto es el total de la factura de la cocina?"
+    - "¿Qué materiales incluye el presupuesto?"
+    
+    Args:
+        property_id: Property UUID
+        search_term: Keywords to find the document (e.g., "factura aire", "presupuesto cocina")
+        question: Your question about the document content
+    
+    Returns:
+        Dict with answer and document info
+    
+    Example:
+        query_armario_document(property_id='...', search_term='factura aire', question='¿Cuál es el importe total?')
+    """
+    from tools.supabase_client import sb, BUCKET
+    import logging
+    import base64
+    import io
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"[query_armario_document] Searching for '{search_term}' to answer: '{question}'")
+        
+        # 1. Search for the document
+        result = sb.table("armario_documents")\
+            .select("id, document_name, cajon, subcajon, is_uploaded, storage_path, original_filename, content_type, extracted_data")\
+            .eq("property_id", property_id)\
+            .ilike("document_name", f"%{search_term}%")\
+            .execute()
+        
+        documents = result.data or []
+        
+        # Try original_filename if no match
+        if not documents:
+            result = sb.table("armario_documents")\
+                .select("id, document_name, cajon, subcajon, is_uploaded, storage_path, original_filename, content_type, extracted_data")\
+                .eq("property_id", property_id)\
+                .ilike("original_filename", f"%{search_term}%")\
+                .execute()
+            documents = result.data or []
+        
+        if not documents:
+            return {
+                "ok": False, 
+                "answer": f"No encontré ningún documento que coincida con '{search_term}' en el Armario Digital.",
+                "document_found": False
+            }
+        
+        # Get the first uploaded document
+        doc = None
+        for d in documents:
+            if d.get("is_uploaded") and d.get("storage_path"):
+                doc = d
+                break
+        
+        if not doc:
+            return {
+                "ok": False,
+                "answer": f"Encontré '{documents[0].get('document_name')}' pero no está subido todavía. Sube el documento primero.",
+                "document_found": True,
+                "is_uploaded": False
+            }
+        
+        logger.info(f"[query_armario_document] Found document: {doc.get('document_name')}")
+        
+        # 2. Check if we already have extracted data with relevant info
+        extracted_data = doc.get("extracted_data") or {}
+        if extracted_data:
+            # Build context from extracted data
+            extracted_context = f"""
+Datos extraídos del documento '{doc.get('document_name')}':
+- Concepto: {extracted_data.get('concepto_detectado', 'No especificado')}
+- Valor total: {extracted_data.get('valor_total', 'No especificado')}€
+- Proveedor: {extracted_data.get('proveedor', 'No especificado')}
+- Número factura: {extracted_data.get('numero_factura', 'No especificado')}
+- Fecha documento: {extracted_data.get('fecha_documento', 'No especificada')}
+"""
+            logger.info(f"[query_armario_document] Using extracted data for answer")
+        else:
+            extracted_context = ""
+        
+        # 3. Download and extract text from the document
+        storage_path = doc["storage_path"]
+        content_type = doc.get("content_type", "application/pdf")
+        
+        try:
+            file_bytes = sb.storage.from_(BUCKET).download(storage_path)
+            logger.info(f"[query_armario_document] Downloaded {len(file_bytes)} bytes")
+        except Exception as dl_err:
+            logger.error(f"[query_armario_document] Download error: {dl_err}")
+            # If we have extracted data, use that
+            if extracted_context:
+                pass  # Continue with extracted data only
+            else:
+                return {
+                    "ok": False,
+                    "answer": "No pude descargar el documento para leerlo.",
+                    "document_found": True
+                }
+        
+        # 4. Extract text based on content type
+        document_text = ""
+        if 'file_bytes' in dir() and file_bytes:
+            if "pdf" in content_type.lower():
+                try:
+                    import fitz  # PyMuPDF
+                    pdf_doc = fitz.open(stream=file_bytes, filetype="pdf")
+                    for page in pdf_doc:
+                        document_text += page.get_text()
+                    pdf_doc.close()
+                    logger.info(f"[query_armario_document] Extracted {len(document_text)} chars from PDF")
+                except ImportError:
+                    logger.warning("[query_armario_document] PyMuPDF not available, using extracted_data only")
+                except Exception as pdf_err:
+                    logger.warning(f"[query_armario_document] PDF extraction error: {pdf_err}")
+        
+        # 5. Build context and answer with GPT
+        context = ""
+        if document_text:
+            # Truncate if too long
+            max_chars = 8000
+            if len(document_text) > max_chars:
+                document_text = document_text[:max_chars] + "...[truncado]"
+            context = f"Contenido del documento:\n{document_text}\n"
+        
+        if extracted_context:
+            context += extracted_context
+        
+        if not context:
+            return {
+                "ok": False,
+                "answer": "No pude extraer información del documento. Puede que sea una imagen o un PDF escaneado.",
+                "document_found": True
+            }
+        
+        # 6. Use GPT to answer the question
+        from openai import OpenAI
+        client = OpenAI()
+        
+        system_prompt = """Eres un asistente que responde preguntas sobre documentos.
+Responde de forma clara y concisa basándote SOLO en la información del documento proporcionado.
+Si la información no está en el documento, di que no la encuentras.
+Responde en español."""
+        
+        user_prompt = f"""Documento: {doc.get('document_name')}
+Ubicación: {doc.get('cajon')}/{doc.get('subcajon', '')}
+
+{context}
+
+Pregunta del usuario: {question}"""
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.3,
+            max_tokens=500
+        )
+        
+        answer = response.choices[0].message.content
+        logger.info(f"[query_armario_document] Generated answer: {answer[:100]}...")
+        
+        return {
+            "ok": True,
+            "answer": answer,
+            "document_name": doc.get("document_name"),
+            "document_id": doc.get("id"),
+            "cajon": doc.get("cajon"),
+            "subcajon": doc.get("subcajon")
+        }
+        
+    except Exception as e:
+        logger.error(f"[query_armario_document] Error: {e}", exc_info=True)
+        return {"ok": False, "answer": f"Error al consultar el documento: {str(e)}"}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
