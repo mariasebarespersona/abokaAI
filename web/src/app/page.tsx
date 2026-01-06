@@ -171,9 +171,9 @@ export default function AbokaWorkspace() {
             {selectedPropertyId ? (
               activePanel === 'dashboard' ? (
                 <PropertyDashboard 
+                  key={`dashboard-${dataRefreshKey}`}
                   propertyId={selectedPropertyId}
                   propertyName={selectedPropertyName}
-                  refreshKey={dataRefreshKey}
                 />
               ) : activePanel === 'excel' ? (
                 <AbokaExcel propertyId={selectedPropertyId} key={`excel-${dataRefreshKey}`} />

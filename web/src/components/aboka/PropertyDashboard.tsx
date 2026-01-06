@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Building2, FileText, Calculator, TrendingUp,
   CheckCircle, Clock, AlertTriangle, Euro,
-  FolderOpen, BarChart3, PieChart, Target
+  FolderOpen, BarChart3, PieChart, Target, RefreshCw
 } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -30,34 +30,34 @@ interface EstudioSummary {
 interface PropertyDashboardProps {
   propertyId: string | null;
   propertyName: string | null;
-  refreshKey?: number; // Used to trigger data refresh when documents/excel are updated
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export function PropertyDashboard({ propertyId, propertyName, refreshKey = 0 }: PropertyDashboardProps) {
+export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboardProps) {
   const [armarioSummary, setArmarioSummary] = useState<ArmarioSummary[]>([]);
   const [estudioSummary, setEstudioSummary] = useState<EstudioSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080';
 
   // Fetch dashboard data
-  useEffect(() => {
+  const fetchData = useCallback(async (showLoading = true) => {
     if (!propertyId) {
       setIsLoading(false);
       return;
     }
 
-    const fetchData = async () => {
-      setIsLoading(true);
-      setError(null);
+    if (showLoading) setIsLoading(true);
+    else setIsRefreshing(true);
+    setError(null);
 
-      try {
-        // Fetch Armario summary
+    try {
+      // Fetch Armario summary
         const armarioRes = await fetch(`${BACKEND_URL}/api/armario/${propertyId}/summary`);
         const armarioJson = await armarioRes.json();
         console.log('[PropertyDashboard] Armario summary response:', armarioJson);
@@ -116,11 +116,19 @@ export function PropertyDashboard({ propertyId, propertyName, refreshKey = 0 }: 
         setError('Error al cargar los datos');
       } finally {
         setIsLoading(false);
+        setIsRefreshing(false);
       }
-    };
+  }, [propertyId, BACKEND_URL]);
 
+  // Initial fetch
+  useEffect(() => {
     fetchData();
-  }, [propertyId, BACKEND_URL, refreshKey]); // refreshKey triggers re-fetch when data changes
+  }, [fetchData]);
+
+  // Manual refresh handler
+  const handleRefresh = () => {
+    fetchData(false);
+  };
 
   // Calculate totals from armario summary (with safety check)
   const armarioTotals = (Array.isArray(armarioSummary) ? armarioSummary : []).reduce(
@@ -173,14 +181,24 @@ export function PropertyDashboard({ propertyId, propertyName, refreshKey = 0 }: 
     <div className="h-full flex flex-col bg-white rounded-xl border border-slate-200 overflow-hidden">
       {/* Header */}
       <div className="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-slate-900 to-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center">
-            <BarChart3 size={24} className="text-white" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center">
+              <BarChart3 size={24} className="text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">{propertyName || 'Propiedad'}</h2>
+              <p className="text-sm text-slate-300">Resumen del estado actual</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-xl font-bold text-white">{propertyName || 'Propiedad'}</h2>
-            <p className="text-sm text-slate-300">Resumen del estado actual</p>
-          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="p-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors disabled:opacity-50"
+            title="Actualizar datos"
+          >
+            <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
+          </button>
         </div>
       </div>
 

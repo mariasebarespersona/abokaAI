@@ -257,3 +257,4 @@ BEGIN
     RAISE NOTICE '   SELECT seed_financial_items_for_property(''your-property-id'');';
     RAISE NOTICE '   SELECT seed_timeline_for_property(''your-property-id'');';
 END $$;
+
