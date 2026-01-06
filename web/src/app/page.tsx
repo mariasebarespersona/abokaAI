@@ -26,12 +26,12 @@ export default function AbokaWorkspace() {
   // Active Panel Tab: 'dashboard', 'excel' or 'docs'
   const [activePanel, setActivePanel] = useState<'dashboard' | 'excel' | 'docs'>('dashboard')
   
-  // Refresh key - changes when chat updates financial data
-  const [excelRefreshKey, setExcelRefreshKey] = useState(0)
+  // Refresh key - changes when data is updated (chat, documents, excel)
+  const [dataRefreshKey, setDataRefreshKey] = useState(0)
   
-  // Called by ChatPanel when financial data is updated via chat
-  const handleFinancialDataUpdated = () => {
-    setExcelRefreshKey(prev => prev + 1)
+  // Called when any data is updated (financial, documents, etc.)
+  const handleDataUpdated = () => {
+    setDataRefreshKey(prev => prev + 1)
   }
   
   // Load initial state
@@ -173,14 +173,16 @@ export default function AbokaWorkspace() {
                 <PropertyDashboard 
                   propertyId={selectedPropertyId}
                   propertyName={selectedPropertyName}
+                  refreshKey={dataRefreshKey}
                 />
               ) : activePanel === 'excel' ? (
-                <AbokaExcel propertyId={selectedPropertyId} key={`excel-${excelRefreshKey}`} />
+                <AbokaExcel propertyId={selectedPropertyId} key={`excel-${dataRefreshKey}`} />
               ) : (
                 <ArmarioDigital 
                   key={`armario-${selectedPropertyId}`}
                   propertyId={selectedPropertyId} 
                   propertyName={selectedPropertyName}
+                  onDocumentUploaded={handleDataUpdated}
                 />
               )
             ) : (
@@ -207,7 +209,7 @@ export default function AbokaWorkspace() {
              isCreatingProperty={isCreatingProperty}
              onCancelCreation={() => setIsCreatingProperty(false)}
              onPropertyCreated={handlePropertyCreated}
-             onFinancialDataUpdated={handleFinancialDataUpdated}
+             onFinancialDataUpdated={handleDataUpdated}
            />
         </section>
 

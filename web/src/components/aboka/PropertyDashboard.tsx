@@ -30,13 +30,14 @@ interface EstudioSummary {
 interface PropertyDashboardProps {
   propertyId: string | null;
   propertyName: string | null;
+  refreshKey?: number; // Used to trigger data refresh when documents/excel are updated
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboardProps) {
+export function PropertyDashboard({ propertyId, propertyName, refreshKey = 0 }: PropertyDashboardProps) {
   const [armarioSummary, setArmarioSummary] = useState<ArmarioSummary[]>([]);
   const [estudioSummary, setEstudioSummary] = useState<EstudioSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -119,7 +120,7 @@ export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboar
     };
 
     fetchData();
-  }, [propertyId, BACKEND_URL]);
+  }, [propertyId, BACKEND_URL, refreshKey]); // refreshKey triggers re-fetch when data changes
 
   // Calculate totals from armario summary (with safety check)
   const armarioTotals = (Array.isArray(armarioSummary) ? armarioSummary : []).reduce(
