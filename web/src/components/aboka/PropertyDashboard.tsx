@@ -58,7 +58,7 @@ export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboar
 
     try {
       // Fetch Armario summary
-        const armarioRes = await fetch(`${BACKEND_URL}/api/armario/${propertyId}/summary`);
+        const armarioRes = await fetch(`${BACKEND_URL}/api/armario/summary?property_id=${propertyId}`);
         const armarioJson = await armarioRes.json();
         console.log('[PropertyDashboard] Armario summary response:', armarioJson);
         
