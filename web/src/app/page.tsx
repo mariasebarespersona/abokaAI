@@ -31,6 +31,7 @@ export default function AbokaWorkspace() {
   
   // Called when any data is updated (financial, documents, etc.)
   const handleDataUpdated = () => {
+    console.log('[Page] handleDataUpdated called, refreshing dashboard...')
     setDataRefreshKey(prev => prev + 1)
   }
   
@@ -122,7 +123,11 @@ export default function AbokaWorkspace() {
           {/* Tab Navigation */}
           <div className="flex items-center gap-1 px-4 pt-4 pb-2 bg-white border-b border-slate-100">
             <button
-              onClick={() => setActivePanel('dashboard')}
+              onClick={() => {
+                setActivePanel('dashboard')
+                // Force refresh when switching to dashboard
+                handleDataUpdated()
+              }}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activePanel === 'dashboard'
                   ? 'bg-slate-800 text-white shadow-lg shadow-slate-500/25'

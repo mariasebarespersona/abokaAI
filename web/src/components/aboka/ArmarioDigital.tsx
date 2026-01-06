@@ -420,10 +420,17 @@ function ArmarioDigitalContent({ propertyId, propertyName, onDocumentUploaded }:
         // Notify parent if callback exists (only if still mounted)
         if (isMountedRef.current && onDocumentUploaded) {
           try {
+            console.log('[ArmarioDigital] Calling onDocumentUploaded callback...');
             onDocumentUploaded();
+            console.log('[ArmarioDigital] onDocumentUploaded callback completed');
           } catch (callbackErr) {
             console.warn('[ArmarioDigital] onDocumentUploaded callback error:', callbackErr);
           }
+        } else {
+          console.log('[ArmarioDigital] onDocumentUploaded callback NOT called:', {
+            isMounted: isMountedRef.current,
+            hasCallback: !!onDocumentUploaded
+          });
         }
         
         // Show extraction proposal modal if extraction was successful
