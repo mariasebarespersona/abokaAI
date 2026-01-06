@@ -223,18 +223,18 @@ export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboar
             </div>
             <div className="mb-2">
               <div className="flex justify-between text-sm mb-1">
-                <span className="text-indigo-700">Progreso</span>
-                <span className="font-bold text-indigo-900">{docCompletionPercent.toFixed(0)}%</span>
+                <span className="text-indigo-700">Documentos subidos</span>
+                <span className="font-bold text-indigo-900">{armarioTotals.uploaded} / {armarioTotals.total}</span>
               </div>
               <div className="h-3 bg-indigo-200 rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-indigo-500 rounded-full transition-all"
-                  style={{ width: `${docCompletionPercent}%` }}
+                  style={{ width: `${armarioTotals.total > 0 ? (armarioTotals.uploaded / armarioTotals.total) * 100 : 0}%` }}
                 />
               </div>
             </div>
             <p className="text-xs text-indigo-600">
-              {armarioTotals.requiredUploaded} de {armarioTotals.required} documentos obligatorios
+              {armarioTotals.requiredUploaded} de {armarioTotals.required} obligatorios completados
             </p>
           </div>
 
@@ -303,14 +303,16 @@ export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboar
         </h3>
         <div className="grid grid-cols-3 gap-3">
           {(Array.isArray(armarioSummary) ? armarioSummary : []).map((category) => {
-            const percent = category.required_docs > 0
-              ? (category.required_uploaded / category.required_docs) * 100
+            // Calculate percentage based on uploaded docs vs total
+            const uploadPercent = category.total_docs > 0
+              ? (category.uploaded_docs / category.total_docs) * 100
               : 0;
             
-            const colorClass = percent === 100 
+            const hasUploads = category.uploaded_docs > 0;
+            const colorClass = uploadPercent === 100 
               ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-              : percent > 50 
-                ? 'bg-amber-50 border-amber-200 text-amber-700'
+              : hasUploads 
+                ? 'bg-blue-50 border-blue-200 text-blue-700'
                 : 'bg-slate-50 border-slate-200 text-slate-600';
 
             return (
@@ -320,20 +322,23 @@ export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboar
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-medium text-sm">{category.cajon}</span>
-                  {percent === 100 ? (
+                  {uploadPercent === 100 ? (
                     <CheckCircle size={16} className="text-emerald-500" />
+                  ) : hasUploads ? (
+                    <FileText size={16} className="text-blue-500" />
                   ) : (
                     <Clock size={16} className="text-slate-400" />
                   )}
                 </div>
                 <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden mb-1">
                   <div 
-                    className={`h-full rounded-full ${percent === 100 ? 'bg-emerald-500' : 'bg-blue-500'}`}
-                    style={{ width: `${percent}%` }}
+                    className={`h-full rounded-full ${uploadPercent === 100 ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                    style={{ width: `${uploadPercent}%` }}
                   />
                 </div>
                 <p className="text-xs opacity-70">
-                  {category.required_uploaded}/{category.required_docs} obligatorios
+                  {category.uploaded_docs}/{category.total_docs} docs
+                  {category.required_docs > 0 && ` (${category.required_uploaded}/${category.required_docs} oblig.)`}
                 </p>
               </div>
             );
