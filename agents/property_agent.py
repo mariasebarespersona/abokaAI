@@ -27,6 +27,9 @@ from tools.registry import (
     signed_url_for_tool,
     send_email_tool,
     get_document_for_email_tool,
+    # Armario Digital tools (search & email)
+    search_armario_documents_tool,
+    send_armario_document_email_tool,
     # RAG tools
     query_documents_tool,
     index_all_documents_maninos_tool,
@@ -182,6 +185,9 @@ class PropertyAgent(BaseAgent):
             signed_url_for_tool,
             send_email_tool,
             get_document_for_email_tool,
+            # Armario Digital (search & email)
+            search_armario_documents_tool,
+            send_armario_document_email_tool,
             # RAG Tools
             query_documents_tool,
             index_all_documents_maninos_tool,
