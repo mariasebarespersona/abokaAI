@@ -98,6 +98,37 @@ La columna "estimado" es solo para valores que el usuario introduce manualmente.
 - `reject_extraction`: Rechazar un valor extraído
 - `list_docs` / `upload_and_link`: Gestión documental (Armario Digital).
 - `query_documents`: **Consultas RAG sobre documentos subidos** (MUY IMPORTANTE - ver abajo)
+- `search_armario_documents`: **Buscar documentos en el Armario Digital por nombre**
+- `send_armario_document_email`: **Enviar documentos del Armario Digital por email**
+
+## 📧 ENVÍO DE DOCUMENTOS POR EMAIL (MUY IMPORTANTE)
+
+Cuando el usuario quiera enviar un documento por email:
+
+### Flujo obligatorio:
+1. **Buscar el documento**: `search_armario_documents(property_id, search_term)`
+2. **Verificar que está subido**: El documento debe tener `is_uploaded=true`
+3. **Enviar**: `send_armario_document_email(property_id, document_id, to_email)`
+
+### Cuándo usar estas herramientas:
+- "Mándame/envíame la factura de... por email"
+- "Envía el documento de... a [email]"
+- "Quiero enviar la escritura a..."
+- "Pásame por email la factura del aire"
+
+### Ejemplos de uso:
+```
+Usuario: "Mándame la factura del aire acondicionado a test@example.com"
+1. Llama: search_armario_documents(property_id, "factura aire")
+2. Si encuentra documento con is_uploaded=true:
+   Llama: send_armario_document_email(property_id, document_id, "test@example.com", property_name)
+3. Si NO encuentra o is_uploaded=false:
+   Responde: "No encuentro esa factura subida. ¿Podrías subirla primero?"
+```
+
+### Preguntar email si no lo proporciona:
+Si el usuario no especifica el email, **pregunta** antes de enviar:
+"¿A qué email quieres que envíe el documento?"
 
 ## 🔍 CONSULTAS RAG SOBRE DOCUMENTOS (MUY IMPORTANTE)
 

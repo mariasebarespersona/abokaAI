@@ -629,6 +629,159 @@ def get_armario_document_url_tool(property_id: str, cajon: str, subcajon: str, d
     return _get_armario_document_url(property_id, cajon, subcajon, document_name)
 
 
+class SearchArmarioDocumentsInput(BaseModel):
+    property_id: str = Field(..., description="Property UUID")
+    search_term: str = Field(..., description="Search term to find documents by name (case insensitive)")
+
+@tool("search_armario_documents")
+def search_armario_documents_tool(property_id: str, search_term: str) -> Dict:
+    """Search for documents in the Armario Digital by name.
+    
+    Use this tool when user asks about a specific document or wants to send/download a document.
+    The search is case insensitive and matches partial names.
+    
+    Args:
+        property_id: Property UUID
+        search_term: Text to search for in document names (e.g., "factura aire", "escritura")
+    
+    Returns:
+        Dict with:
+        - ok: bool
+        - documents: List of matching documents with id, document_name, cajon, subcajon, is_uploaded, storage_path
+        - count: Number of matches
+    
+    Example: search_armario_documents(property_id='...', search_term='factura aire')
+    """
+    from tools.supabase_client import sb
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"[search_armario_documents] Searching for '{search_term}' in property {property_id}")
+        
+        # Search documents with partial match (ilike for case-insensitive)
+        result = sb.table("armario_documents")\
+            .select("id, document_name, cajon, subcajon, is_uploaded, storage_path, original_filename")\
+            .eq("property_id", property_id)\
+            .ilike("document_name", f"%{search_term}%")\
+            .execute()
+        
+        documents = result.data or []
+        
+        # If no results by document_name, try original_filename
+        if not documents:
+            result = sb.table("armario_documents")\
+                .select("id, document_name, cajon, subcajon, is_uploaded, storage_path, original_filename")\
+                .eq("property_id", property_id)\
+                .ilike("original_filename", f"%{search_term}%")\
+                .execute()
+            documents = result.data or []
+        
+        logger.info(f"[search_armario_documents] Found {len(documents)} documents matching '{search_term}'")
+        
+        return {
+            "ok": True,
+            "documents": documents,
+            "count": len(documents)
+        }
+    except Exception as e:
+        logger.error(f"[search_armario_documents] Error: {e}")
+        return {"ok": False, "error": str(e), "documents": [], "count": 0}
+
+
+class SendArmarioDocumentEmailInput(BaseModel):
+    property_id: str = Field(..., description="Property UUID")
+    document_id: str = Field(..., description="Document ID from armario_documents table")
+    to_email: str = Field(..., description="Recipient email address")
+    property_name: Optional[str] = Field(default=None, description="Property name for the email subject")
+
+@tool("send_armario_document_email")
+def send_armario_document_email_tool(property_id: str, document_id: str, to_email: str, property_name: Optional[str] = None) -> Dict:
+    """Send a document from the Armario Digital via email.
+    
+    IMPORTANT: First use search_armario_documents to find the document_id, then use this tool.
+    Only uploaded documents (is_uploaded=true) can be sent.
+    
+    Args:
+        property_id: Property UUID
+        document_id: Document ID (get this from search_armario_documents)
+        to_email: Recipient's email address
+        property_name: Optional property name for the email subject
+    
+    Returns:
+        Dict with ok (bool) and message or error
+    
+    Example workflow:
+    1. User: "manda la factura de aire acondicionado a test@example.com"
+    2. Agent: search_armario_documents(property_id='...', search_term='factura aire')
+    3. Agent: send_armario_document_email(property_id='...', document_id='uuid-from-search', to_email='test@example.com')
+    """
+    from tools.supabase_client import sb
+    from tools.email_tool import send_email as _send_email_internal
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"[send_armario_document_email] Sending document {document_id} to {to_email}")
+        
+        # Get the document
+        doc_result = sb.table("armario_documents")\
+            .select("id, document_name, original_filename, storage_path, is_uploaded, property_id")\
+            .eq("id", document_id)\
+            .eq("property_id", property_id)\
+            .single()\
+            .execute()
+        
+        if not doc_result.data:
+            return {"ok": False, "error": "Documento no encontrado para esta propiedad"}
+        
+        doc = doc_result.data
+        
+        # Check if document is uploaded
+        if not doc.get("is_uploaded") or not doc.get("storage_path"):
+            return {"ok": False, "error": f"El documento '{doc.get('document_name')}' no está subido todavía. Solo se pueden enviar documentos que ya han sido cargados."}
+        
+        # Download the document content
+        storage_path = doc["storage_path"]
+        logger.info(f"[send_armario_document_email] Downloading from storage: {storage_path}")
+        
+        download_result = sb.storage.from_("documents").download(storage_path)
+        
+        if not download_result:
+            return {"ok": False, "error": "No se pudo descargar el documento del almacenamiento"}
+        
+        # Determine filename
+        filename = doc.get("original_filename") or f"{doc.get('document_name')}.pdf"
+        
+        # Prepare email
+        prop_name = property_name or "Propiedad"
+        subject = f"Documento: {doc.get('document_name')} - {prop_name}"
+        html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #1e40af;">📄 Documento de ABOKA AI</h2>
+            <p>Adjunto encontrarás el documento solicitado:</p>
+            <ul>
+                <li><strong>Documento:</strong> {doc.get('document_name')}</li>
+                <li><strong>Propiedad:</strong> {prop_name}</li>
+                <li><strong>Archivo:</strong> {filename}</li>
+            </ul>
+            <hr style="border: 1px solid #e5e7eb; margin: 20px 0;">
+            <p style="color: #6b7280; font-size: 12px;">Este email fue enviado automáticamente desde ABOKA AI.</p>
+        </div>
+        """
+        
+        # Send email with attachment
+        attachments = [(filename, download_result)]
+        _send_email_internal(to=[to_email], subject=subject, html=html, attachments=attachments)
+        
+        logger.info(f"[send_armario_document_email] ✅ Email sent successfully to {to_email}")
+        return {"ok": True, "message": f"Documento '{doc.get('document_name')}' enviado a {to_email}"}
+        
+    except Exception as e:
+        logger.error(f"[send_armario_document_email] Error: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
