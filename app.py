@@ -2034,8 +2034,15 @@ async def ui_chat(
                 save_session(session_id)
                 fr = list_frameworks(prop["id"])
                 return make_response(
-                    f"✅ Propiedad creada: **{prop['name']}** — {prop['address']}\n"
-                    f"He creado las plantillas de Documentos y Números. ¿Por dónde quieres empezar?",
+                    f"✅ Propiedad creada: **{prop['name']}** — {prop['address']}\n\n"
+                    f"He creado el **Estudio Económico** y el **Armario Digital** de documentos.\n\n"
+                    f"**¿Qué puedes hacer?**\n"
+                    f"• 📊 Pedirme que añada valores de estimación al Estudio Económico\n"
+                    f"• 📁 Subir documentos al Armario Digital (facturas, presupuestos...)\n"
+                    f"• 💰 Los valores de las facturas se añaden automáticamente a la columna Real\n"
+                    f"• 📧 Enviar documentos o resúmenes por email\n"
+                    f"• 💬 Preguntarme sobre el estudio económico o los documentos\n\n"
+                    f"¿Por dónde quieres empezar?",
                     {"property_id": prop["id"], "property_name": prop["name"]},
                 )
             except Exception as e:
@@ -2484,8 +2491,15 @@ async def ui_chat(
                 save_session(session_id)
                 fr = list_frameworks(prop["id"])
                 return make_response(
-                    f"✅ Propiedad creada: **{prop['name']}** — {prop['address']}\n"
-                    f"He creado las plantillas de Documentos y Números. ¿Por dónde quieres empezar?",
+                    f"✅ Propiedad creada: **{prop['name']}** — {prop['address']}\n\n"
+                    f"He creado el **Estudio Económico** y el **Armario Digital** de documentos.\n\n"
+                    f"**¿Qué puedes hacer?**\n"
+                    f"• 📊 Pedirme que añada valores de estimación al Estudio Económico\n"
+                    f"• 📁 Subir documentos al Armario Digital (facturas, presupuestos...)\n"
+                    f"• 💰 Los valores de las facturas se añaden automáticamente a la columna Real\n"
+                    f"• 📧 Enviar documentos o resúmenes por email\n"
+                    f"• 💬 Preguntarme sobre el estudio económico o los documentos\n\n"
+                    f"¿Por dónde quieres empezar?",
                     {"property_id": prop["id"], "property_name": prop["name"]},
                 )
             except Exception as e:
