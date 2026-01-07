@@ -820,16 +820,50 @@ def query_armario_document_tool(property_id: str, search_term: str, question: st
     try:
         logger.info(f"[query_armario_document] Searching for '{search_term}' to answer: '{question}'")
         
-        # 1. Search for the document
+        # 1. Search for the document - try multiple strategies
+        documents = []
+        
+        # Strategy 1: Exact phrase match
         result = sb.table("armario_documents")\
             .select("id, document_name, cajon, subcajon, is_uploaded, storage_path, original_filename, content_type, extracted_data")\
             .eq("property_id", property_id)\
             .ilike("document_name", f"%{search_term}%")\
             .execute()
-        
         documents = result.data or []
         
-        # Try original_filename if no match
+        # Strategy 2: Try individual keywords if no exact match
+        if not documents:
+            # Remove common words and search by keywords
+            stop_words = {'de', 'la', 'el', 'los', 'las', 'un', 'una', 'que', 'del', 'al', 'y', 'o', 'en', 'con', 'por', 'para', 'es', 'son', 'fue', 'ha', 'he', 'subido', 'documento', 'dice'}
+            keywords = [w for w in search_term.lower().split() if w not in stop_words and len(w) > 2]
+            logger.info(f"[query_armario_document] Trying keyword search with: {keywords}")
+            
+            # Get all uploaded documents and filter by keywords
+            all_docs_result = sb.table("armario_documents")\
+                .select("id, document_name, cajon, subcajon, is_uploaded, storage_path, original_filename, content_type, extracted_data")\
+                .eq("property_id", property_id)\
+                .eq("is_uploaded", True)\
+                .execute()
+            
+            all_docs = all_docs_result.data or []
+            
+            # Score each document by keyword matches
+            scored_docs = []
+            for doc in all_docs:
+                doc_name_lower = doc.get("document_name", "").lower()
+                original_lower = (doc.get("original_filename") or "").lower()
+                score = sum(1 for kw in keywords if kw in doc_name_lower or kw in original_lower)
+                if score > 0:
+                    scored_docs.append((score, doc))
+            
+            # Sort by score (highest first) and take the best match
+            scored_docs.sort(key=lambda x: x[0], reverse=True)
+            documents = [doc for score, doc in scored_docs]
+            
+            if documents:
+                logger.info(f"[query_armario_document] Found {len(documents)} documents via keyword search, best match: {documents[0].get('document_name')}")
+        
+        # Strategy 3: Try original_filename if still no match
         if not documents:
             result = sb.table("armario_documents")\
                 .select("id, document_name, cajon, subcajon, is_uploaded, storage_path, original_filename, content_type, extracted_data")\
