@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "name": "rama-agentic-ai",
+  "name": "aboka-ai",
   "builds": [
     {
       "src": "web/package.json",
