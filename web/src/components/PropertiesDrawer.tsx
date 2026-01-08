@@ -138,8 +138,8 @@ export function PropertiesDrawer({
                             : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-md'
                         }`}
                     >
-                        {/* Action buttons - positioned absolutely to avoid button nesting */}
-                        <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 z-10">
+                        {/* Action buttons - positioned at bottom right to avoid overlap with stage badge */}
+                        <div className="absolute bottom-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 z-10 bg-white/90 rounded-lg p-0.5">
                           <button
                               onClick={(e) => handleEditClick(e, prop)}
                               className="p-1.5 rounded-lg hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition-colors"
@@ -168,7 +168,7 @@ export function PropertiesDrawer({
                                 <div className={`p-2 rounded-lg ${isActive ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
                                     <Home size={18} />
                                 </div>
-                                <div className="flex items-center gap-2 pr-8">
+                                <div className="flex items-center gap-2">
                                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider ${
                                         prop.acquisition_stage === 'rejected'
                                             ? 'bg-red-600 text-white'
