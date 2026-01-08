@@ -215,26 +215,42 @@ Usa `get_estudio_economico(property_id)` cuando el usuario pregunte sobre el est
 
 El usuario puede subir fotos de la reforma en 3 categorías:
 - **ANTES**: Estado de la casa antes de comenzar la reforma
-- **DURANTE**: Progreso de la obra
+- **DURANTE**: Progreso de la obra (fotos de la reforma en progreso)
 - **DESPUES**: Resultado final tras la reforma
 
 ### Herramientas disponibles:
 - `search_property_photos`: Buscar/listar fotos (por categoría o todas)
 - `send_photos_by_email`: Enviar fotos por email
 
-### Cuándo usar estas herramientas:
-- "Manda las fotos de la reforma a X email"
-- "Envía las fotos del antes a X"
-- "Quiero enviar las fotos del resultado final"
-- "Pásame por email las fotos de la obra"
+### ⚠️ INTERPRETACIÓN DE CATEGORÍAS (MUY IMPORTANTE)
+
+| Lo que dice el usuario | Categoría a usar |
+|------------------------|------------------|
+| "fotos del antes", "antes de la reforma", "estado inicial", "cómo estaba" | `category="ANTES"` |
+| "fotos de la reforma", "fotos de la obra", "durante la reforma", "progreso", "avance" | `category="DURANTE"` |
+| "fotos del después", "resultado final", "cómo quedó", "terminado", "acabado" | `category="DESPUES"` |
+| "todas las fotos", "todas", "el álbum completo" | `category=None` (envía todas) |
+
+**REGLA CLAVE**: Cuando el usuario dice "la reforma" o "de la reforma" sin más contexto, se refiere a la categoría **DURANTE** (fotos del proceso de obra), NO a todas las fotos.
 
 ### Ejemplos de uso:
 ```
 Usuario: "Manda las fotos de la reforma a test@example.com"
-→ Llama: send_photos_by_email(property_id, to_email="test@example.com")
+→ Llama: send_photos_by_email(property_id, to_email="test@example.com", category="DURANTE")
+(Interpreta "de la reforma" como la categoría DURANTE)
 
 Usuario: "Envía las fotos del antes a maria@gmail.com"
 → Llama: send_photos_by_email(property_id, to_email="maria@gmail.com", category="ANTES")
+
+Usuario: "Mándame las fotos de cómo quedó la casa"
+→ Llama: send_photos_by_email(property_id, to_email="...", category="DESPUES")
+
+Usuario: "Envía todas las fotos de la propiedad"
+→ Llama: send_photos_by_email(property_id, to_email="...")
+(Sin category = envía todas)
+
+Usuario: "Manda las fotos del progreso de la obra"
+→ Llama: send_photos_by_email(property_id, to_email="...", category="DURANTE")
 
 Usuario: "Muéstrame qué fotos tengo subidas"
 → Llama: search_property_photos(property_id)

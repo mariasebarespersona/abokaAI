@@ -384,13 +384,13 @@ export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboar
                 return (
                   <div 
                     key={photo.id}
-                    className="relative aspect-video rounded-lg overflow-hidden bg-slate-100 group"
+                    className="relative aspect-video rounded-lg overflow-hidden bg-slate-800 group"
                   >
                     {photo.signed_url ? (
                       <img
                         src={photo.signed_url}
                         alt={photo.filename}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain"
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">

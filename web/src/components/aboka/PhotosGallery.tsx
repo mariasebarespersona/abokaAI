@@ -405,14 +405,14 @@ export function PhotosGallery({ propertyId, propertyName, onPhotoUploaded }: Pho
                       {categoryPhotos.map((photo) => (
                         <div
                           key={photo.id}
-                          className="relative group aspect-square rounded-lg overflow-hidden bg-slate-100 cursor-pointer"
+                          className="relative group aspect-square rounded-lg overflow-hidden bg-slate-800 cursor-pointer"
                           onClick={() => setSelectedPhoto(photo)}
                         >
                           {photo.signed_url ? (
                             <img
                               src={photo.signed_url}
                               alt={photo.filename}
-                              className="w-full h-full object-cover"
+                              className="w-full h-full object-contain"
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">

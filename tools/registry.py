@@ -1109,6 +1109,7 @@ def send_photos_by_email_tool(
     2. Agent: send_photos_by_email(property_id='...', to_email='test@example.com', category='ANTES')
     """
     from tools.email_tool import send_email as _send_email_internal
+    from tools.supabase_client import sb, BUCKET
     import logging
     logger = logging.getLogger(__name__)
     
