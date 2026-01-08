@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Building2, FileText, Calculator, TrendingUp,
   CheckCircle, Clock, AlertTriangle, Euro,
-  FolderOpen, BarChart3, PieChart, Target, RefreshCw
+  FolderOpen, BarChart3, PieChart, Target, RefreshCw, Camera, ImageIcon
 } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -27,6 +27,14 @@ interface EstudioSummary {
   completionPercent: number;
 }
 
+interface FeaturedPhoto {
+  id: string;
+  category: 'ANTES' | 'DURANTE' | 'DESPUES';
+  filename: string;
+  signed_url: string | null;
+  uploaded_at: string;
+}
+
 interface PropertyDashboardProps {
   propertyId: string | null;
   propertyName: string | null;
@@ -39,6 +47,7 @@ interface PropertyDashboardProps {
 export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboardProps) {
   const [armarioSummary, setArmarioSummary] = useState<ArmarioSummary[]>([]);
   const [estudioSummary, setEstudioSummary] = useState<EstudioSummary | null>(null);
+  const [featuredPhotos, setFeaturedPhotos] = useState<FeaturedPhoto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +123,13 @@ export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboar
             roi,
             completionPercent: totalFields > 0 ? (filledFields / totalFields) * 100 : 0
           });
+        }
+
+        // Fetch featured photos
+        const photosRes = await fetch(`${BACKEND_URL}/api/photos/featured?property_id=${propertyId}`);
+        const photosJson = await photosRes.json();
+        if (photosJson.ok) {
+          setFeaturedPhotos(photosJson.photos || []);
         }
       } catch (err) {
         console.error('Dashboard fetch error:', err);
@@ -344,6 +360,52 @@ export function PropertyDashboard({ propertyId, propertyName }: PropertyDashboar
             );
           })}
         </div>
+
+        {/* Featured Photos Section */}
+        {featuredPhotos.length > 0 && (
+          <>
+            <h3 className="font-semibold text-slate-700 mt-6 mb-3 flex items-center gap-2">
+              <Camera size={16} />
+              Fotos Destacadas
+            </h3>
+            <div className="grid grid-cols-3 gap-3">
+              {featuredPhotos.map((photo) => {
+                const categoryLabels: Record<string, string> = {
+                  'ANTES': 'Antes',
+                  'DURANTE': 'Durante',
+                  'DESPUES': 'Después'
+                };
+                const categoryColors: Record<string, string> = {
+                  'ANTES': 'bg-slate-600',
+                  'DURANTE': 'bg-amber-500',
+                  'DESPUES': 'bg-emerald-500'
+                };
+                
+                return (
+                  <div 
+                    key={photo.id}
+                    className="relative aspect-video rounded-lg overflow-hidden bg-slate-100 group"
+                  >
+                    {photo.signed_url ? (
+                      <img
+                        src={photo.signed_url}
+                        alt={photo.filename}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <ImageIcon size={24} className="text-slate-300" />
+                      </div>
+                    )}
+                    <div className={`absolute bottom-0 left-0 right-0 px-2 py-1 ${categoryColors[photo.category]} text-white text-xs font-medium`}>
+                      {categoryLabels[photo.category] || photo.category}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

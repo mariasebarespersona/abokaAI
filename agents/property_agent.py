@@ -29,6 +29,9 @@ from tools.registry import (
     list_armario_tool,                  # List all docs in armario
     get_armario_summary_tool,           # Get completion stats
     query_armario_document_tool,        # RAG - Ask questions about document content
+    # Property Photos (Renovation Progress)
+    search_property_photos_tool,        # Search/list photos by category
+    send_photos_by_email_tool,          # Send photos via email
     # Document Extraction (auto-extract values from invoices)
     get_pending_extractions_tool,
     approve_extraction_tool,
@@ -166,6 +169,7 @@ class PropertyAgent(BaseAgent):
         - Property: get, list, find, delete, update
         - Estudio Económico: get, update (financial tracking)
         - Armario Digital: search, list, summary, send email
+        - Photos: search, send by email (renovation progress)
         - RAG: query documents
         - Extraction: get pending, approve, reject, format
         """
@@ -188,6 +192,10 @@ class PropertyAgent(BaseAgent):
             list_armario_tool,                  # List all docs in a cajón
             get_armario_summary_tool,           # Get completion stats per cajón
             query_armario_document_tool,        # RAG - Ask questions about document content
+            
+            # ═══ PROPERTY PHOTOS (Renovation Progress) ═══
+            search_property_photos_tool,        # Search/list photos (ANTES, DURANTE, DESPUES)
+            send_photos_by_email_tool,          # Send photos via email
             
             # ═══ DOCUMENT EXTRACTION ═══
             get_pending_extractions_tool,       # Check for values extracted from invoices

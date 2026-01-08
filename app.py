@@ -3823,6 +3823,292 @@ async def classify_document_api(filename: str, hint: str = ""):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# PROPERTY PHOTOS ENDPOINTS (Renovation Progress: ANTES, DURANTE, DESPUES)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/photos")
+async def get_property_photos(property_id: str, category: str | None = None):
+    """Get all photos for a property, optionally filtered by category."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"[API] GET /api/photos: property_id={property_id}, category={category}")
+        
+        query = sb.table("property_photos")\
+            .select("*")\
+            .eq("property_id", property_id)\
+            .order("uploaded_at", desc=True)
+        
+        if category:
+            query = query.eq("category", category.upper())
+        
+        result = query.execute()
+        
+        photos = result.data or []
+        
+        # Add signed URLs for each photo
+        for photo in photos:
+            if photo.get("storage_path"):
+                try:
+                    signed = sb.storage.from_(BUCKET).create_signed_url(photo["storage_path"], 3600)
+                    photo["signed_url"] = signed.get("signedURL")
+                except Exception as e:
+                    logger.warning(f"Could not create signed URL for {photo['storage_path']}: {e}")
+                    photo["signed_url"] = None
+        
+        return JSONResponse({
+            "ok": True,
+            "photos": photos,
+            "count": len(photos)
+        })
+        
+    except Exception as e:
+        logger.error(f"[API] Error fetching photos: {e}")
+        return JSONResponse({"ok": False, "error": str(e), "photos": []}, status_code=500)
+
+
+@app.get("/api/photos/featured")
+async def get_featured_photos(property_id: str):
+    """Get featured photos for the dashboard (max 3)."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"[API] GET /api/photos/featured: property_id={property_id}")
+        
+        result = sb.table("property_photos")\
+            .select("*")\
+            .eq("property_id", property_id)\
+            .eq("is_featured", True)\
+            .order("uploaded_at", desc=True)\
+            .limit(3)\
+            .execute()
+        
+        photos = result.data or []
+        
+        # Add signed URLs
+        for photo in photos:
+            if photo.get("storage_path"):
+                try:
+                    signed = sb.storage.from_(BUCKET).create_signed_url(photo["storage_path"], 3600)
+                    photo["signed_url"] = signed.get("signedURL")
+                except Exception as e:
+                    photo["signed_url"] = None
+        
+        return JSONResponse({
+            "ok": True,
+            "photos": photos
+        })
+        
+    except Exception as e:
+        logger.error(f"[API] Error fetching featured photos: {e}")
+        return JSONResponse({"ok": False, "error": str(e), "photos": []}, status_code=500)
+
+
+@app.get("/api/photos/summary")
+async def get_photos_summary(property_id: str):
+    """Get photo count summary by category."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"[API] GET /api/photos/summary: property_id={property_id}")
+        
+        result = sb.table("property_photos")\
+            .select("category")\
+            .eq("property_id", property_id)\
+            .execute()
+        
+        photos = result.data or []
+        
+        summary = {
+            "ANTES": 0,
+            "DURANTE": 0,
+            "DESPUES": 0,
+            "total": len(photos)
+        }
+        
+        for photo in photos:
+            cat = photo.get("category", "").upper()
+            if cat in summary:
+                summary[cat] += 1
+        
+        return JSONResponse({
+            "ok": True,
+            "summary": summary
+        })
+        
+    except Exception as e:
+        logger.error(f"[API] Error fetching photos summary: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/api/photos/upload")
+async def upload_property_photo(
+    property_id: str = Form(...),
+    category: str = Form(...),
+    file: UploadFile = File(...),
+    description: str = Form(None),
+    is_featured: bool = Form(False)
+):
+    """Upload a photo to a property's gallery."""
+    import logging
+    import mimetypes
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"[API] POST /api/photos/upload: property_id={property_id}, category={category}, filename={file.filename}")
+        
+        # Validate category
+        category = category.upper()
+        if category not in ['ANTES', 'DURANTE', 'DESPUES']:
+            return JSONResponse({
+                "ok": False, 
+                "error": f"Categoría inválida: {category}. Debe ser ANTES, DURANTE o DESPUES"
+            }, status_code=400)
+        
+        # Read file
+        file_bytes = await file.read()
+        filename = file.filename or f"photo_{uuid.uuid4()}.jpg"
+        
+        # Validate it's an image
+        content_type = mimetypes.guess_type(filename)[0] or "image/jpeg"
+        if not content_type.startswith("image/"):
+            return JSONResponse({
+                "ok": False,
+                "error": "El archivo debe ser una imagen (jpg, png, gif, webp)"
+            }, status_code=400)
+        
+        # Upload to storage
+        storage_path = f"photos/{property_id}/{category}/{uuid.uuid4()}_{filename}"
+        
+        sb.storage.from_(BUCKET).upload(
+            storage_path,
+            file_bytes,
+            {"content-type": content_type, "upsert": "true"}
+        )
+        
+        logger.info(f"[API] Photo uploaded to storage: {storage_path}")
+        
+        # Insert into database
+        photo_id = str(uuid.uuid4())
+        insert_result = sb.table("property_photos").insert({
+            "id": photo_id,
+            "property_id": property_id,
+            "category": category,
+            "storage_path": storage_path,
+            "filename": filename,
+            "original_filename": file.filename,
+            "content_type": content_type,
+            "is_featured": is_featured,
+            "description": description
+        }).execute()
+        
+        if insert_result.data:
+            photo = insert_result.data[0]
+            # Add signed URL
+            try:
+                signed = sb.storage.from_(BUCKET).create_signed_url(storage_path, 3600)
+                photo["signed_url"] = signed.get("signedURL")
+            except:
+                photo["signed_url"] = None
+            
+            logger.info(f"[API] ✅ Photo saved successfully: {photo_id}")
+            return JSONResponse({
+                "ok": True,
+                "photo": photo,
+                "message": f"Foto subida a {category}"
+            })
+        else:
+            return JSONResponse({
+                "ok": False,
+                "error": "Error al guardar en base de datos"
+            }, status_code=500)
+        
+    except Exception as e:
+        logger.error(f"[API] Error uploading photo: {e}", exc_info=True)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.put("/api/photos/{photo_id}/featured")
+async def toggle_photo_featured(photo_id: str, request: Request):
+    """Toggle the featured status of a photo."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        body = await request.json()
+        is_featured = body.get("is_featured", False)
+        
+        logger.info(f"[API] PUT /api/photos/{photo_id}/featured: is_featured={is_featured}")
+        
+        result = sb.table("property_photos")\
+            .update({"is_featured": is_featured})\
+            .eq("id", photo_id)\
+            .execute()
+        
+        if result.data:
+            return JSONResponse({
+                "ok": True,
+                "photo": result.data[0],
+                "message": "Foto destacada" if is_featured else "Foto no destacada"
+            })
+        else:
+            return JSONResponse({"ok": False, "error": "Foto no encontrada"}, status_code=404)
+        
+    except Exception as e:
+        logger.error(f"[API] Error updating photo featured status: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.delete("/api/photos/{photo_id}")
+async def delete_property_photo(photo_id: str, property_id: str):
+    """Delete a photo from a property's gallery."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"[API] DELETE /api/photos/{photo_id}: property_id={property_id}")
+        
+        # First get the photo to find storage path
+        photo_result = sb.table("property_photos")\
+            .select("*")\
+            .eq("id", photo_id)\
+            .eq("property_id", property_id)\
+            .execute()
+        
+        if not photo_result.data:
+            return JSONResponse({"ok": False, "error": "Foto no encontrada"}, status_code=404)
+        
+        photo = photo_result.data[0]
+        storage_path = photo.get("storage_path")
+        
+        # Delete from storage
+        if storage_path:
+            try:
+                sb.storage.from_(BUCKET).remove([storage_path])
+                logger.info(f"[API] Deleted from storage: {storage_path}")
+            except Exception as e:
+                logger.warning(f"Could not delete from storage: {e}")
+        
+        # Delete from database
+        delete_result = sb.table("property_photos")\
+            .delete()\
+            .eq("id", photo_id)\
+            .execute()
+        
+        return JSONResponse({
+            "ok": True,
+            "message": "Foto eliminada correctamente"
+        })
+        
+    except Exception as e:
+        logger.error(f"[API] Error deleting photo: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # ESTUDIO ECONÓMICO ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════
 

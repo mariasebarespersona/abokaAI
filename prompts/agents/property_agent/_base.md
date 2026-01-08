@@ -210,3 +210,36 @@ Usa `get_estudio_economico(property_id)` cuando el usuario pregunte sobre el est
    - Beneficio esperado
    - ROI %
    - Diferencias importantes entre estimado y real
+
+## 📷 ENVÍO DE FOTOS POR EMAIL (MUY IMPORTANTE)
+
+El usuario puede subir fotos de la reforma en 3 categorías:
+- **ANTES**: Estado de la casa antes de comenzar la reforma
+- **DURANTE**: Progreso de la obra
+- **DESPUES**: Resultado final tras la reforma
+
+### Herramientas disponibles:
+- `search_property_photos`: Buscar/listar fotos (por categoría o todas)
+- `send_photos_by_email`: Enviar fotos por email
+
+### Cuándo usar estas herramientas:
+- "Manda las fotos de la reforma a X email"
+- "Envía las fotos del antes a X"
+- "Quiero enviar las fotos del resultado final"
+- "Pásame por email las fotos de la obra"
+
+### Ejemplos de uso:
+```
+Usuario: "Manda las fotos de la reforma a test@example.com"
+→ Llama: send_photos_by_email(property_id, to_email="test@example.com")
+
+Usuario: "Envía las fotos del antes a maria@gmail.com"
+→ Llama: send_photos_by_email(property_id, to_email="maria@gmail.com", category="ANTES")
+
+Usuario: "Muéstrame qué fotos tengo subidas"
+→ Llama: search_property_photos(property_id)
+```
+
+### Preguntar email si no lo proporciona:
+Si el usuario no especifica el email, **pregunta** antes de enviar:
+"¿A qué email quieres que envíe las fotos?"

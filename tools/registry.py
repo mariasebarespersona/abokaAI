@@ -1010,6 +1010,235 @@ Pregunta del usuario: {question}"""
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# PROPERTY PHOTOS TOOLS (Renovation Progress: ANTES, DURANTE, DESPUES)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class SearchPropertyPhotosInput(BaseModel):
+    property_id: str = Field(..., description="Property UUID")
+    category: Optional[str] = Field(None, description="Photo category: ANTES, DURANTE, or DESPUES. None for all.")
+
+@tool("search_property_photos")
+def search_property_photos_tool(property_id: str, category: Optional[str] = None) -> Dict:
+    """Search and list photos from a property's gallery.
+    
+    Categories:
+    - ANTES: Photos before renovation started
+    - DURANTE: Photos during the renovation process
+    - DESPUES: Photos after renovation is complete
+    - None: Returns all photos
+    
+    Args:
+        property_id: Property UUID
+        category: Optional category filter (ANTES, DURANTE, DESPUES)
+    
+    Returns:
+        Dict with photos list including id, filename, category, and storage info
+    
+    Example:
+        search_property_photos(property_id='...', category='ANTES')
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"[search_property_photos] Searching photos for property {property_id}, category={category}")
+        
+        query = sb.table("property_photos")\
+            .select("id, filename, original_filename, category, storage_path, is_featured, description, uploaded_at")\
+            .eq("property_id", property_id)\
+            .order("uploaded_at", desc=True)
+        
+        if category:
+            query = query.eq("category", category.upper())
+        
+        result = query.execute()
+        photos = result.data or []
+        
+        logger.info(f"[search_property_photos] Found {len(photos)} photos")
+        
+        return {
+            "ok": True,
+            "photos": photos,
+            "count": len(photos)
+        }
+    except Exception as e:
+        logger.error(f"[search_property_photos] Error: {e}")
+        return {"ok": False, "error": str(e), "photos": [], "count": 0}
+
+
+class SendPhotosByEmailInput(BaseModel):
+    property_id: str = Field(..., description="Property UUID")
+    to_email: str = Field(..., description="Recipient email address")
+    category: Optional[str] = Field(None, description="Photo category to send: ANTES, DURANTE, DESPUES, or None for all featured")
+    photo_ids: Optional[List[str]] = Field(None, description="Specific photo IDs to send. If None, sends featured or by category.")
+    property_name: Optional[str] = Field(None, description="Property name for the email subject")
+
+@tool("send_photos_by_email")
+def send_photos_by_email_tool(
+    property_id: str, 
+    to_email: str, 
+    category: Optional[str] = None, 
+    photo_ids: Optional[List[str]] = None,
+    property_name: Optional[str] = None
+) -> Dict:
+    """Send renovation progress photos via email.
+    
+    IMPORTANT: Use this tool when the user wants to send photos of the renovation.
+    
+    Modes:
+    1. Specific photos: Provide photo_ids (from search_property_photos)
+    2. By category: Provide category (ANTES, DURANTE, DESPUES)
+    3. All featured: category=None and photo_ids=None sends all featured photos
+    
+    Args:
+        property_id: Property UUID
+        to_email: Recipient's email address
+        category: Optional - ANTES, DURANTE, or DESPUES
+        photo_ids: Optional - List of specific photo IDs to send
+        property_name: Optional - Property name for email subject
+    
+    Returns:
+        Dict with ok (bool) and message or error
+    
+    Example workflow:
+    1. User: "manda las fotos de la reforma a test@example.com"
+    2. Agent: send_photos_by_email(property_id='...', to_email='test@example.com')
+    
+    Example with category:
+    1. User: "manda las fotos del antes de la reforma a test@example.com"
+    2. Agent: send_photos_by_email(property_id='...', to_email='test@example.com', category='ANTES')
+    """
+    from tools.email_tool import send_email as _send_email_internal
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"[send_photos_by_email] Sending photos to {to_email}, category={category}, photo_ids={photo_ids}")
+        
+        # Determine which photos to send
+        photos = []
+        
+        if photo_ids:
+            # Send specific photos
+            for pid in photo_ids:
+                result = sb.table("property_photos")\
+                    .select("*")\
+                    .eq("id", pid)\
+                    .eq("property_id", property_id)\
+                    .execute()
+                if result.data:
+                    photos.extend(result.data)
+        elif category:
+            # Send by category
+            result = sb.table("property_photos")\
+                .select("*")\
+                .eq("property_id", property_id)\
+                .eq("category", category.upper())\
+                .order("uploaded_at", desc=True)\
+                .limit(10)\
+                .execute()
+            photos = result.data or []
+        else:
+            # Send featured photos (or recent if no featured)
+            result = sb.table("property_photos")\
+                .select("*")\
+                .eq("property_id", property_id)\
+                .eq("is_featured", True)\
+                .order("uploaded_at", desc=True)\
+                .execute()
+            photos = result.data or []
+            
+            # If no featured, get most recent from each category
+            if not photos:
+                for cat in ['ANTES', 'DURANTE', 'DESPUES']:
+                    cat_result = sb.table("property_photos")\
+                        .select("*")\
+                        .eq("property_id", property_id)\
+                        .eq("category", cat)\
+                        .order("uploaded_at", desc=True)\
+                        .limit(2)\
+                        .execute()
+                    if cat_result.data:
+                        photos.extend(cat_result.data)
+        
+        if not photos:
+            return {"ok": False, "error": "No se encontraron fotos para enviar. Primero sube algunas fotos al álbum."}
+        
+        # Download photos and prepare attachments
+        attachments = []
+        category_labels = {
+            'ANTES': 'Antes de la reforma',
+            'DURANTE': 'Durante la reforma',
+            'DESPUES': 'Después de la reforma'
+        }
+        
+        photos_by_category = {}
+        for photo in photos:
+            cat = photo.get("category", "OTROS")
+            storage_path = photo.get("storage_path")
+            
+            if not storage_path:
+                continue
+            
+            try:
+                file_bytes = sb.storage.from_(BUCKET).download(storage_path)
+                filename = photo.get("original_filename") or photo.get("filename") or f"{cat}_{photo['id'][:8]}.jpg"
+                attachments.append((filename, file_bytes))
+                
+                if cat not in photos_by_category:
+                    photos_by_category[cat] = []
+                photos_by_category[cat].append(filename)
+                
+                logger.info(f"[send_photos_by_email] Downloaded: {filename}")
+            except Exception as dl_err:
+                logger.warning(f"[send_photos_by_email] Could not download {storage_path}: {dl_err}")
+        
+        if not attachments:
+            return {"ok": False, "error": "No se pudieron descargar las fotos del almacenamiento."}
+        
+        # Prepare email
+        prop_name = property_name or "Propiedad"
+        subject = f"📷 Fotos de la reforma - {prop_name}"
+        
+        # Build photo list HTML
+        photo_list_html = ""
+        for cat, filenames in photos_by_category.items():
+            label = category_labels.get(cat, cat)
+            photo_list_html += f"<li><strong>{label}:</strong> {', '.join(filenames)}</li>"
+        
+        html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #1e40af;">📷 Fotos de la Reforma</h2>
+            <p>Adjunto encontrarás las fotos de la propiedad <strong>{prop_name}</strong>.</p>
+            
+            <h3 style="color: #374151;">Fotos incluidas:</h3>
+            <ul>
+                {photo_list_html}
+            </ul>
+            
+            <p style="color: #6b7280;">Total: {len(attachments)} foto(s)</p>
+            
+            <hr style="border: 1px solid #e5e7eb; margin: 20px 0;">
+            <p style="color: #6b7280; font-size: 12px;">Este email fue enviado automáticamente desde ABOKA AI.</p>
+        </div>
+        """
+        
+        # Send email
+        _send_email_internal(to=[to_email], subject=subject, html=html, attachments=attachments)
+        
+        logger.info(f"[send_photos_by_email] ✅ Email sent successfully with {len(attachments)} photos to {to_email}")
+        return {
+            "ok": True, 
+            "message": f"✅ Enviadas {len(attachments)} foto(s) a {to_email}",
+            "photos_sent": len(attachments)
+        }
+        
+    except Exception as e:
+        logger.error(f"[send_photos_by_email] Error: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 
 
 class SetNumberInput(BaseModel):
