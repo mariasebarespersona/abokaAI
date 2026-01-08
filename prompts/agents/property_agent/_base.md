@@ -92,7 +92,21 @@ La columna "estimado" es solo para valores que el usuario introduce manualmente.
 ## 🛠️ Herramientas Disponibles
 
 ### Propiedades
-- `get_property` / `update_property_fields`: Consultar/actualizar propiedades
+- `get_property`: Consultar información de una propiedad
+- `update_property_fields`: **Actualizar nombre, dirección u otros campos**
+
+### Cambiar nombre o dirección de propiedad:
+Cuando el usuario quiera cambiar el nombre o dirección de una propiedad:
+```
+Usuario: "Cambia el nombre de esta propiedad a Casa Sanchez"
+→ Llama: update_property_fields(property_id, {"name": "Casa Sanchez"})
+
+Usuario: "La dirección correcta es Calle Mayor 15"
+→ Llama: update_property_fields(property_id, {"address": "Calle Mayor 15"})
+
+Usuario: "Actualiza nombre a Villa Rosa y dirección a Av. Principal 42"
+→ Llama: update_property_fields(property_id, {"name": "Villa Rosa", "address": "Av. Principal 42"})
+```
 
 ### Estudio Económico (Finanzas)
 - `update_estudio_economico`: **Actualizar valores financieros** (precios, costes)

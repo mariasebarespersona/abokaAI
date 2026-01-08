@@ -3059,6 +3059,50 @@ async def delete_property_api(property_id: str):
         logger.error(f"[DELETE /api/property/{property_id}] ❌ Exception: {e}")
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
+@app.put("/api/property/{property_id}")
+async def update_property_api(property_id: str, request: Request):
+    """Update property name and/or address."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        from tools.property_tools import update_property_fields
+        
+        body = await request.json()
+        name = body.get("name")
+        address = body.get("address")
+        
+        if not name and not address:
+            return JSONResponse({"ok": False, "error": "No fields to update"}, status_code=400)
+        
+        fields = {}
+        if name:
+            fields["name"] = name
+        if address:
+            fields["address"] = address
+        
+        logger.info(f"[PUT /api/property/{property_id}] Updating property: {fields}")
+        
+        result = update_property_fields(property_id, fields)
+        
+        if result.get("ok"):
+            logger.info(f"[PUT /api/property/{property_id}] ✅ Property updated successfully")
+            return JSONResponse({
+                "ok": True, 
+                "message": "Property updated successfully",
+                "updated": result.get("updated")
+            })
+        else:
+            logger.error(f"[PUT /api/property/{property_id}] ❌ Update failed: {result.get('error')}")
+            return JSONResponse({
+                "ok": False, 
+                "error": result.get("error", "Failed to update property")
+            }, status_code=500)
+            
+    except Exception as e:
+        logger.error(f"[PUT /api/property/{property_id}] ❌ Exception: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
 @app.get("/api/properties")
 async def list_properties_api():
     """List all properties for the menu."""
