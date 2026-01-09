@@ -4208,12 +4208,42 @@ async def email_inbound_webhook(request: Request):
     try:
         # Parse the webhook payload (Resend format)
         body = await request.json()
-        logger.info(f"[EMAIL INBOUND] Received webhook: {body.get('subject', 'No subject')}")
         
-        # Extract email details
-        from_email = body.get("from", "unknown@email.com")
-        subject = body.get("subject", "")
-        attachments = body.get("attachments", [])
+        # DEBUG: Log entire payload to understand Resend's format
+        import json as json_mod
+        logger.info(f"[EMAIL INBOUND] ========== FULL WEBHOOK PAYLOAD ==========")
+        logger.info(f"[EMAIL INBOUND] Keys: {list(body.keys())}")
+        logger.info(f"[EMAIL INBOUND] Payload: {json_mod.dumps(body, default=str)[:2000]}")
+        logger.info(f"[EMAIL INBOUND] ==========================================")
+        
+        # Resend Inbound uses different field structure
+        # Try multiple possible locations for the data
+        from_email = (
+            body.get("from") or 
+            body.get("From") or 
+            body.get("sender") or
+            body.get("data", {}).get("from") or
+            body.get("data", {}).get("sender") or
+            "unknown@email.com"
+        )
+        
+        subject = (
+            body.get("subject") or 
+            body.get("Subject") or 
+            body.get("data", {}).get("subject") or
+            body.get("headers", {}).get("subject") or
+            ""
+        )
+        
+        attachments = (
+            body.get("attachments") or 
+            body.get("Attachments") or 
+            body.get("data", {}).get("attachments") or
+            body.get("files") or
+            []
+        )
+        
+        logger.info(f"[EMAIL INBOUND] Parsed - from: {from_email}, subject: {subject}, attachments count: {len(attachments)}")
         
         if not attachments:
             logger.warning("[EMAIL INBOUND] No attachments found")
