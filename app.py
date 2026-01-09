@@ -4212,8 +4212,20 @@ async def email_inbound_webhook(request: Request):
         # DEBUG: Log entire payload to understand Resend's format
         import json as json_mod
         logger.info(f"[EMAIL INBOUND] ========== FULL WEBHOOK PAYLOAD ==========")
-        logger.info(f"[EMAIL INBOUND] Keys: {list(body.keys())}")
-        logger.info(f"[EMAIL INBOUND] Payload: {json_mod.dumps(body, default=str)[:2000]}")
+        logger.info(f"[EMAIL INBOUND] Top-level keys: {list(body.keys())}")
+        data_obj = body.get("data", {})
+        logger.info(f"[EMAIL INBOUND] Data keys: {list(data_obj.keys()) if isinstance(data_obj, dict) else 'not a dict'}")
+        logger.info(f"[EMAIL INBOUND] Payload (first 3000 chars): {json_mod.dumps(body, default=str)[:3000]}")
+        
+        # Check for raw email content
+        raw_email = data_obj.get("raw") or data_obj.get("Raw") or data_obj.get("eml") or body.get("raw")
+        if raw_email:
+            logger.info(f"[EMAIL INBOUND] Found raw email content! Length: {len(raw_email)}")
+        
+        # Check for text/html body  
+        text_body = data_obj.get("text") or data_obj.get("body") or data_obj.get("plain")
+        html_body = data_obj.get("html") or data_obj.get("Html")
+        logger.info(f"[EMAIL INBOUND] text_body length: {len(text_body) if text_body else 0}, html_body length: {len(html_body) if html_body else 0}")
         logger.info(f"[EMAIL INBOUND] ==========================================")
         
         # Resend Inbound uses different field structure
@@ -4318,32 +4330,60 @@ async def email_inbound_webhook(request: Request):
             import httpx
             resend_api_key = os.getenv("RESEND_API_KEY")
             
-            async with httpx.AsyncClient() as client:
+            file_bytes = b""
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 headers = {"Authorization": f"Bearer {resend_api_key}"}
                 
-                # Try the attachment download endpoint
-                attachment_url = f"https://api.resend.com/emails/{email_id}/attachments/{attachment_id}"
-                logger.info(f"[EMAIL INBOUND] Fetching: {attachment_url}")
+                # Try multiple possible endpoints for inbound attachments
+                endpoints_to_try = [
+                    f"https://api.resend.com/attachments/{attachment_id}",
+                    f"https://api.resend.com/attachments/{attachment_id}/download",
+                    f"https://api.resend.com/emails/{email_id}/attachments/{attachment_id}",
+                    f"https://api.resend.com/emails/{email_id}/attachments/{attachment_id}/download",
+                ]
                 
-                response = await client.get(attachment_url, headers=headers)
+                for endpoint in endpoints_to_try:
+                    logger.info(f"[EMAIL INBOUND] Trying endpoint: {endpoint}")
+                    try:
+                        response = await client.get(endpoint, headers=headers)
+                        logger.info(f"[EMAIL INBOUND] Response: {response.status_code}")
+                        
+                        if response.status_code == 200:
+                            content_type_header = response.headers.get("content-type", "")
+                            
+                            if "application/json" in content_type_header:
+                                resp_json = response.json()
+                                logger.info(f"[EMAIL INBOUND] JSON response keys: {list(resp_json.keys())}")
+                                # Try various field names
+                                content_b64 = resp_json.get("content") or resp_json.get("data") or resp_json.get("body") or ""
+                                if content_b64:
+                                    file_bytes = base64.b64decode(content_b64)
+                                    logger.info(f"[EMAIL INBOUND] Got JSON with base64: {len(file_bytes)} bytes")
+                                    break
+                                # Maybe there's a URL to download from
+                                download_url = resp_json.get("url") or resp_json.get("download_url") or resp_json.get("signed_url")
+                                if download_url:
+                                    logger.info(f"[EMAIL INBOUND] Found download URL: {download_url[:100]}")
+                                    dl_response = await client.get(download_url)
+                                    if dl_response.status_code == 200:
+                                        file_bytes = dl_response.content
+                                        logger.info(f"[EMAIL INBOUND] Downloaded from URL: {len(file_bytes)} bytes")
+                                        break
+                            else:
+                                file_bytes = response.content
+                                logger.info(f"[EMAIL INBOUND] Got binary: {len(file_bytes)} bytes")
+                                break
+                    except Exception as e:
+                        logger.warning(f"[EMAIL INBOUND] Endpoint {endpoint} failed: {e}")
+                        continue
                 
-                if response.status_code == 200:
-                    # Check if response is JSON (contains base64) or raw bytes
-                    content_type_header = response.headers.get("content-type", "")
-                    
-                    if "application/json" in content_type_header:
-                        resp_json = response.json()
-                        content_b64 = resp_json.get("content") or resp_json.get("data") or ""
-                        file_bytes = base64.b64decode(content_b64) if content_b64 else b""
-                        logger.info(f"[EMAIL INBOUND] Got JSON response, decoded {len(file_bytes)} bytes")
-                    else:
-                        # Raw binary content
-                        file_bytes = response.content
-                        logger.info(f"[EMAIL INBOUND] Got binary response: {len(file_bytes)} bytes")
-                else:
-                    logger.error(f"[EMAIL INBOUND] Failed to fetch attachment: {response.status_code} - {response.text[:200]}")
-                    await _send_format_error_reply(from_email, f"No se pudo descargar el archivo adjunto (error {response.status_code}).")
-                    return JSONResponse({"ok": False, "error": f"Attachment fetch failed: {response.status_code}"})
+                if not file_bytes:
+                    logger.error("[EMAIL INBOUND] All endpoints failed to retrieve attachment")
+                    # Log what we got in the attachment object for debugging
+                    logger.error(f"[EMAIL INBOUND] Full attachment object: {attachment}")
+                    await _send_format_error_reply(from_email, "No se pudo descargar el archivo adjunto. Por favor, contacta soporte.")
+                    return JSONResponse({"ok": False, "error": "Could not fetch attachment from any endpoint"})
         else:
             logger.error("[EMAIL INBOUND] No content and no attachment_id!")
             await _send_format_error_reply(from_email, "El archivo adjunto no se pudo procesar.")
