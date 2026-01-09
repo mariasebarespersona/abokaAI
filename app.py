@@ -4288,12 +4288,34 @@ async def email_inbound_webhook(request: Request):
         
         # Process the first attachment
         attachment = attachments[0]
-        filename = attachment.get("filename", "document.pdf")
-        content_b64 = attachment.get("content", "")
-        content_type = attachment.get("content_type", "application/pdf")
+        
+        # DEBUG: Log attachment structure
+        logger.info(f"[EMAIL INBOUND] Attachment keys: {list(attachment.keys()) if isinstance(attachment, dict) else type(attachment)}")
+        logger.info(f"[EMAIL INBOUND] Attachment raw: {str(attachment)[:500]}")
+        
+        filename = attachment.get("filename") or attachment.get("name") or attachment.get("fileName") or "document.pdf"
+        content_b64 = attachment.get("content") or attachment.get("data") or attachment.get("Content") or ""
+        content_type = attachment.get("content_type") or attachment.get("contentType") or attachment.get("type") or attachment.get("mimeType") or "application/pdf"
+        
+        logger.info(f"[EMAIL INBOUND] Attachment: filename={filename}, content_type={content_type}, content_b64_length={len(content_b64)}")
+        
+        if not content_b64:
+            logger.error("[EMAIL INBOUND] ❌ Attachment content is empty! Checking for alternative fields...")
+            # Try to find the content in other ways
+            for key in attachment.keys():
+                val = attachment[key]
+                if isinstance(val, str) and len(val) > 100:
+                    logger.info(f"[EMAIL INBOUND] Found potential content in key '{key}': length={len(val)}")
         
         # Decode and save to temp storage
-        file_bytes = base64.b64decode(content_b64)
+        file_bytes = base64.b64decode(content_b64) if content_b64 else b""
+        logger.info(f"[EMAIL INBOUND] Decoded {len(file_bytes)} bytes from base64")
+        
+        if len(file_bytes) == 0:
+            logger.error("[EMAIL INBOUND] ❌ File has 0 bytes after decode!")
+            await _send_format_error_reply(from_email, "El archivo adjunto parece estar vacío o no se pudo procesar.")
+            return JSONResponse({"ok": False, "error": "Empty attachment content"})
+        
         temp_storage_path = f"pending/{property_id}/{uuid.uuid4()}_{filename}"
         
         sb.storage.from_(BUCKET).upload(
