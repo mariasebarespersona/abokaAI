@@ -4394,24 +4394,30 @@ async def _send_push_notification_to_all(title: str, body: str, data: dict = Non
     import logging
     logger = logging.getLogger(__name__)
     
+    logger.info(f"[PUSH] 🔔 Sending notification: title='{title}', body='{body}'")
+    
     try:
         # Get all push subscriptions
         result = sb.table("push_subscriptions").select("*").execute()
         subscriptions = result.data or []
         
+        logger.info(f"[PUSH] Found {len(subscriptions)} subscriptions in database")
+        
         if not subscriptions:
-            logger.info("[PUSH] No subscriptions found")
+            logger.warning("[PUSH] ⚠️ No subscriptions found - user needs to enable notifications")
             return
         
         # Import pywebpush
         try:
             from pywebpush import webpush, WebPushException
         except ImportError:
-            logger.warning("[PUSH] pywebpush not installed, skipping notifications")
+            logger.error("[PUSH] ❌ pywebpush not installed!")
             return
         
         vapid_private_key = os.getenv("VAPID_PRIVATE_KEY")
         vapid_email = os.getenv("VAPID_EMAIL", "mailto:hello@tumai.us")
+        
+        logger.info(f"[PUSH] VAPID_PRIVATE_KEY set: {bool(vapid_private_key)}, length: {len(vapid_private_key) if vapid_private_key else 0}")
         
         if not vapid_private_key:
             logger.warning("[PUSH] VAPID_PRIVATE_KEY not configured")
@@ -4437,6 +4443,8 @@ async def _send_push_notification_to_all(title: str, body: str, data: dict = Non
                     }
                 }
                 
+                logger.info(f"[PUSH] Sending to endpoint: {sub['endpoint'][:50]}...")
+                
                 webpush(
                     subscription_info=subscription_info,
                     data=payload,
@@ -4444,14 +4452,18 @@ async def _send_push_notification_to_all(title: str, body: str, data: dict = Non
                     vapid_claims={"sub": vapid_email}
                 )
                 sent_count += 1
+                logger.info(f"[PUSH] ✅ Sent successfully to {sub['id']}")
                 
             except WebPushException as e:
+                logger.error(f"[PUSH] ❌ WebPushException: {e}")
+                if e.response:
+                    logger.error(f"[PUSH] Response status: {e.response.status_code}, body: {e.response.text[:200] if e.response.text else 'None'}")
                 if e.response and e.response.status_code == 410:
                     # Subscription expired, remove it
                     sb.table("push_subscriptions").delete().eq("id", sub["id"]).execute()
                     logger.info(f"[PUSH] Removed expired subscription: {sub['id']}")
-                else:
-                    logger.error(f"[PUSH] Failed to send to {sub['id']}: {e}")
+            except Exception as general_err:
+                logger.error(f"[PUSH] ❌ General error: {general_err}")
         
         logger.info(f"[PUSH] Sent {sent_count}/{len(subscriptions)} notifications")
         
