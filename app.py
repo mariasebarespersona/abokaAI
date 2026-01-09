@@ -4473,6 +4473,153 @@ async def email_inbound_webhook(request: Request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
+@app.post("/api/email/inbound-cloudflare")
+async def email_inbound_cloudflare(request: Request):
+    """
+    Receive inbound emails from Cloudflare Email Worker.
+    
+    This endpoint receives emails with attachments already extracted
+    and encoded in base64 by the Cloudflare Worker.
+    """
+    import logging
+    import base64
+    import uuid
+    logger = logging.getLogger(__name__)
+    
+    try:
+        body = await request.json()
+        
+        # Verify it's from our Cloudflare Worker
+        cf_header = request.headers.get("X-Cloudflare-Email-Worker")
+        if not cf_header:
+            logger.warning("[CLOUDFLARE EMAIL] Missing X-Cloudflare-Email-Worker header")
+        
+        logger.info(f"[CLOUDFLARE EMAIL] ========== RECEIVED ==========")
+        logger.info(f"[CLOUDFLARE EMAIL] From: {body.get('from')}")
+        logger.info(f"[CLOUDFLARE EMAIL] Subject: {body.get('subject')}")
+        logger.info(f"[CLOUDFLARE EMAIL] Attachments: {len(body.get('attachments', []))}")
+        logger.info(f"[CLOUDFLARE EMAIL] ==============================")
+        
+        from_email = body.get("from", "unknown@email.com")
+        subject = body.get("subject", "")
+        attachments = body.get("attachments", [])
+        
+        if not attachments:
+            logger.warning("[CLOUDFLARE EMAIL] No attachments")
+            await _send_format_error_reply(from_email, "No se encontró ningún documento adjunto.")
+            return JSONResponse({"ok": False, "error": "No attachments"})
+        
+        # Get existing properties for LLM context
+        properties_result = sb.table("properties").select("name").execute()
+        existing_properties = [p["name"] for p in (properties_result.data or [])]
+        
+        # Use LLM to parse subject
+        parsed = await _parse_email_subject_with_llm(subject, existing_properties)
+        
+        if not parsed or not parsed.get("property_name"):
+            logger.warning(f"[CLOUDFLARE EMAIL] Could not parse subject: {subject}")
+            await _send_format_error_reply(
+                from_email,
+                f"No pude identificar la propiedad en el asunto: '{subject}'. "
+                f"Propiedades disponibles: {', '.join(existing_properties[:5])}"
+            )
+            return JSONResponse({"ok": False, "error": "Could not parse subject"})
+        
+        property_name = parsed["property_name"]
+        document_hint = parsed.get("document_hint", "Documento")
+        
+        logger.info(f"[CLOUDFLARE EMAIL] Parsed: property='{property_name}', document='{document_hint}'")
+        
+        # Find matching property
+        property_result = sb.table("properties")\
+            .select("id, name")\
+            .ilike("name", f"%{property_name}%")\
+            .limit(1)\
+            .execute()
+        
+        if not property_result.data:
+            logger.warning(f"[CLOUDFLARE EMAIL] Property not found: {property_name}")
+            await _send_format_error_reply(from_email, f"No se encontró ninguna propiedad llamada '{property_name}'")
+            return JSONResponse({"ok": False, "error": "Property not found"})
+        
+        property_data = property_result.data[0]
+        property_id = property_data["id"]
+        
+        # Process the first attachment (already has content!)
+        attachment = attachments[0]
+        filename = attachment.get("filename", "document.pdf")
+        content_b64 = attachment.get("content", "")
+        content_type = attachment.get("content_type", "application/pdf")
+        
+        logger.info(f"[CLOUDFLARE EMAIL] Attachment: {filename}, type={content_type}, content_length={len(content_b64)}")
+        
+        if not content_b64:
+            logger.error("[CLOUDFLARE EMAIL] Attachment content is empty")
+            await _send_format_error_reply(from_email, "El archivo adjunto parece estar vacío.")
+            return JSONResponse({"ok": False, "error": "Empty attachment"})
+        
+        # Decode base64 content
+        file_bytes = base64.b64decode(content_b64)
+        logger.info(f"[CLOUDFLARE EMAIL] ✅ Decoded {len(file_bytes)} bytes")
+        
+        # Save to temp storage
+        temp_storage_path = f"pending/{property_id}/{uuid.uuid4()}_{filename}"
+        
+        sb.storage.from_(BUCKET).upload(
+            temp_storage_path,
+            file_bytes,
+            {"content-type": content_type, "upsert": "true"}
+        )
+        
+        logger.info(f"[CLOUDFLARE EMAIL] Saved to temp: {temp_storage_path}")
+        
+        # Classify document
+        from tools.docs_tools import classify_for_armario
+        classification = classify_for_armario(filename, document_hint)
+        
+        suggested_cajon = classification.get("cajon")
+        suggested_subcajon = classification.get("subcajon")
+        suggested_document_name = classification.get("document_name") or document_hint
+        
+        # Save to pending_document_approvals
+        approval_id = str(uuid.uuid4())
+        insert_result = sb.table("pending_document_approvals").insert({
+            "id": approval_id,
+            "property_id": property_id,
+            "property_name": property_data["name"],
+            "document_hint": document_hint,
+            "suggested_cajon": suggested_cajon,
+            "suggested_subcajon": suggested_subcajon,
+            "suggested_document_name": suggested_document_name,
+            "temp_storage_path": temp_storage_path,
+            "original_filename": filename,
+            "content_type": content_type,
+            "sender_email": from_email,
+            "status": "pending"
+        }).execute()
+        
+        logger.info(f"[CLOUDFLARE EMAIL] ✅ Created pending approval: {approval_id}")
+        
+        # Send push notification
+        await _send_push_notification_to_all(
+            title=f"📄 Nueva factura: {property_data['name']}",
+            body=f"{document_hint} - Toca para aprobar",
+            data={"approval_id": approval_id, "property_id": property_id}
+        )
+        
+        return JSONResponse({
+            "ok": True,
+            "approval_id": approval_id,
+            "property_id": property_id,
+            "suggested_location": f"{suggested_cajon}/{suggested_subcajon}",
+            "source": "cloudflare"
+        })
+        
+    except Exception as e:
+        logger.error(f"[CLOUDFLARE EMAIL] Error: {e}", exc_info=True)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
 async def _send_format_error_reply(to_email: str, error_message: str):
     """Send auto-reply when email format is incorrect."""
     import logging

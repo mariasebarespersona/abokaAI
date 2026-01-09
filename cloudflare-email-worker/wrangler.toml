@@ -1,0 +1,14 @@
+name = "aboka-email-worker"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Environment variables (set these in Cloudflare dashboard)
+# [vars]
+# BACKEND_URL = "https://aboka-ai-production.up.railway.app"
+# FALLBACK_EMAIL = "mariasebares9@gmail.com"
+# WEBHOOK_SECRET = "your-secret-here"
+
+# Email routing configuration
+# This tells Cloudflare this worker handles emails
+[[email]]
+
