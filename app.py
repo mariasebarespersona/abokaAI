@@ -4112,24 +4112,97 @@ async def delete_property_photo(photo_id: str, property_id: str):
 # EMAIL INBOUND + PUSH NOTIFICATIONS (PWA)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+async def _parse_email_subject_with_llm(subject: str, existing_properties: list) -> dict:
+    """
+    Use LLM to intelligently parse email subject and extract property name + document type.
+    
+    Returns:
+        {"property_name": "Casa Alberto", "document_hint": "Factura Aire Acondicionado"}
+        or None if parsing fails
+    """
+    import logging
+    import json as json_module
+    from openai import OpenAI
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        client = OpenAI()
+        
+        properties_list = ", ".join(existing_properties) if existing_properties else "No hay propiedades registradas"
+        
+        prompt = f"""Analiza el siguiente asunto de email y extrae:
+1. El nombre de la propiedad/casa mencionada
+2. La descripción del documento
+
+Asunto del email: "{subject}"
+
+Propiedades existentes en el sistema: {properties_list}
+
+IMPORTANTE:
+- El nombre de la propiedad debe coincidir (o ser muy similar) a una de las propiedades existentes
+- Si no puedes identificar claramente la propiedad, devuelve null
+- La descripción del documento es lo que describe el archivo adjunto (factura, presupuesto, contrato, etc.)
+
+Responde SOLO con un JSON válido, sin explicaciones:
+{{"property_name": "nombre exacto de la propiedad o null", "document_hint": "descripción del documento"}}"""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=200
+        )
+        
+        result_text = response.choices[0].message.content.strip()
+        
+        # Clean up potential markdown formatting
+        if result_text.startswith("```"):
+            result_text = result_text.split("```")[1]
+            if result_text.startswith("json"):
+                result_text = result_text[4:]
+        result_text = result_text.strip()
+        
+        parsed = json_module.loads(result_text)
+        
+        logger.info(f"[EMAIL INBOUND] LLM parsed subject: {parsed}")
+        
+        # Validate property_name is not null
+        if not parsed.get("property_name") or parsed["property_name"] == "null":
+            return None
+            
+        return parsed
+        
+    except Exception as e:
+        logger.error(f"[EMAIL INBOUND] LLM parsing error: {e}")
+        return None
+
+
 @app.post("/api/email/inbound")
 async def email_inbound_webhook(request: Request):
     """
     Webhook endpoint for Resend Inbound emails.
     
-    Expected email subject format: [Property Name] Document Description
-    Example: [Casa Alberto] Factura Aire Acondicionado
+    Uses LLM to intelligently parse the subject and extract:
+    - Property name (casa/propiedad)
+    - Document description
+    
+    Examples that work:
+    - "Casa Alberto - factura aire acondicionado"
+    - "[Casa Alberto] Factura Aire"
+    - "Factura cocina para Casa Alberto"
+    - "Casa Alberto factura electricidad"
     
     Flow:
-    1. Parse subject to extract property_name and document_hint
+    1. Use LLM to parse subject and extract property_name + document_hint
     2. Find matching property in database
     3. Classify document to suggest armario location
     4. Save to pending_document_approvals
     5. Send push notification to user
     """
     import logging
-    import re
     import base64
+    import json as json_module
     logger = logging.getLogger(__name__)
     
     try:
@@ -4144,23 +4217,29 @@ async def email_inbound_webhook(request: Request):
         
         if not attachments:
             logger.warning("[EMAIL INBOUND] No attachments found")
-            # Send auto-reply asking for document
             await _send_format_error_reply(from_email, "No se encontró ningún documento adjunto.")
             return JSONResponse({"ok": False, "error": "No attachments"})
         
-        # Parse subject: [Property Name] Document Description
-        subject_pattern = r'^\[(.+?)\]\s*(.+)$'
-        match = re.match(subject_pattern, subject.strip())
+        # Get list of existing properties for context
+        properties_result = sb.table("properties").select("name").execute()
+        existing_properties = [p["name"] for p in (properties_result.data or [])]
         
-        if not match:
-            logger.warning(f"[EMAIL INBOUND] Invalid subject format: {subject}")
-            await _send_format_error_reply(from_email, f"Formato de asunto incorrecto: '{subject}'")
-            return JSONResponse({"ok": False, "error": "Invalid subject format"})
+        # Use LLM to intelligently parse the subject
+        parsed = await _parse_email_subject_with_llm(subject, existing_properties)
         
-        property_name = match.group(1).strip()
-        document_hint = match.group(2).strip()
+        if not parsed or not parsed.get("property_name"):
+            logger.warning(f"[EMAIL INBOUND] Could not parse subject: {subject}")
+            await _send_format_error_reply(
+                from_email, 
+                f"No pude identificar la propiedad en el asunto: '{subject}'. "
+                f"Propiedades disponibles: {', '.join(existing_properties[:5])}"
+            )
+            return JSONResponse({"ok": False, "error": "Could not parse subject"})
         
-        logger.info(f"[EMAIL INBOUND] Parsed: property='{property_name}', document='{document_hint}'")
+        property_name = parsed["property_name"]
+        document_hint = parsed.get("document_hint", "Documento")
+        
+        logger.info(f"[EMAIL INBOUND] LLM Parsed: property='{property_name}', document='{document_hint}'")
         
         # Find matching property (fuzzy search)
         property_result = sb.table("properties")\
