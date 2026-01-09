@@ -4289,32 +4289,72 @@ async def email_inbound_webhook(request: Request):
         # Process the first attachment
         attachment = attachments[0]
         
-        # DEBUG: Log attachment structure
         logger.info(f"[EMAIL INBOUND] Attachment keys: {list(attachment.keys()) if isinstance(attachment, dict) else type(attachment)}")
-        logger.info(f"[EMAIL INBOUND] Attachment raw: {str(attachment)[:500]}")
         
         filename = attachment.get("filename") or attachment.get("name") or attachment.get("fileName") or "document.pdf"
-        content_b64 = attachment.get("content") or attachment.get("data") or attachment.get("Content") or ""
         content_type = attachment.get("content_type") or attachment.get("contentType") or attachment.get("type") or attachment.get("mimeType") or "application/pdf"
+        attachment_id = attachment.get("id")
         
-        logger.info(f"[EMAIL INBOUND] Attachment: filename={filename}, content_type={content_type}, content_b64_length={len(content_b64)}")
+        # Check if content is inline (some webhooks include it)
+        content_b64 = attachment.get("content") or attachment.get("data") or ""
         
-        if not content_b64:
-            logger.error("[EMAIL INBOUND] ❌ Attachment content is empty! Checking for alternative fields...")
-            # Try to find the content in other ways
-            for key in attachment.keys():
-                val = attachment[key]
-                if isinstance(val, str) and len(val) > 100:
-                    logger.info(f"[EMAIL INBOUND] Found potential content in key '{key}': length={len(val)}")
+        if content_b64:
+            # Content is inline - decode it
+            file_bytes = base64.b64decode(content_b64)
+            logger.info(f"[EMAIL INBOUND] Got inline content: {len(file_bytes)} bytes")
+        elif attachment_id:
+            # Content not inline - need to fetch from Resend API
+            logger.info(f"[EMAIL INBOUND] Fetching attachment from Resend API: id={attachment_id}")
+            
+            # Get the email_id from the webhook data
+            email_id = body.get("data", {}).get("email_id")
+            
+            if not email_id:
+                logger.error("[EMAIL INBOUND] No email_id found in webhook payload")
+                await _send_format_error_reply(from_email, "Error interno: no se encontró el ID del email.")
+                return JSONResponse({"ok": False, "error": "No email_id"})
+            
+            # Fetch attachment content from Resend API
+            import httpx
+            resend_api_key = os.getenv("RESEND_API_KEY")
+            
+            async with httpx.AsyncClient() as client:
+                headers = {"Authorization": f"Bearer {resend_api_key}"}
+                
+                # Try the attachment download endpoint
+                attachment_url = f"https://api.resend.com/emails/{email_id}/attachments/{attachment_id}"
+                logger.info(f"[EMAIL INBOUND] Fetching: {attachment_url}")
+                
+                response = await client.get(attachment_url, headers=headers)
+                
+                if response.status_code == 200:
+                    # Check if response is JSON (contains base64) or raw bytes
+                    content_type_header = response.headers.get("content-type", "")
+                    
+                    if "application/json" in content_type_header:
+                        resp_json = response.json()
+                        content_b64 = resp_json.get("content") or resp_json.get("data") or ""
+                        file_bytes = base64.b64decode(content_b64) if content_b64 else b""
+                        logger.info(f"[EMAIL INBOUND] Got JSON response, decoded {len(file_bytes)} bytes")
+                    else:
+                        # Raw binary content
+                        file_bytes = response.content
+                        logger.info(f"[EMAIL INBOUND] Got binary response: {len(file_bytes)} bytes")
+                else:
+                    logger.error(f"[EMAIL INBOUND] Failed to fetch attachment: {response.status_code} - {response.text[:200]}")
+                    await _send_format_error_reply(from_email, f"No se pudo descargar el archivo adjunto (error {response.status_code}).")
+                    return JSONResponse({"ok": False, "error": f"Attachment fetch failed: {response.status_code}"})
+        else:
+            logger.error("[EMAIL INBOUND] No content and no attachment_id!")
+            await _send_format_error_reply(from_email, "El archivo adjunto no se pudo procesar.")
+            return JSONResponse({"ok": False, "error": "No attachment content or id"})
         
-        # Decode and save to temp storage
-        file_bytes = base64.b64decode(content_b64) if content_b64 else b""
-        logger.info(f"[EMAIL INBOUND] Decoded {len(file_bytes)} bytes from base64")
+        logger.info(f"[EMAIL INBOUND] Final file size: {len(file_bytes)} bytes, filename={filename}")
         
         if len(file_bytes) == 0:
-            logger.error("[EMAIL INBOUND] ❌ File has 0 bytes after decode!")
-            await _send_format_error_reply(from_email, "El archivo adjunto parece estar vacío o no se pudo procesar.")
-            return JSONResponse({"ok": False, "error": "Empty attachment content"})
+            logger.error("[EMAIL INBOUND] ❌ File has 0 bytes!")
+            await _send_format_error_reply(from_email, "El archivo adjunto parece estar vacío.")
+            return JSONResponse({"ok": False, "error": "Empty attachment"})
         
         temp_storage_path = f"pending/{property_id}/{uuid.uuid4()}_{filename}"
         
