@@ -4109,6 +4109,486 @@ async def delete_property_photo(photo_id: str, property_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# EMAIL INBOUND + PUSH NOTIFICATIONS (PWA)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/email/inbound")
+async def email_inbound_webhook(request: Request):
+    """
+    Webhook endpoint for Resend Inbound emails.
+    
+    Expected email subject format: [Property Name] Document Description
+    Example: [Casa Alberto] Factura Aire Acondicionado
+    
+    Flow:
+    1. Parse subject to extract property_name and document_hint
+    2. Find matching property in database
+    3. Classify document to suggest armario location
+    4. Save to pending_document_approvals
+    5. Send push notification to user
+    """
+    import logging
+    import re
+    import base64
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Parse the webhook payload (Resend format)
+        body = await request.json()
+        logger.info(f"[EMAIL INBOUND] Received webhook: {body.get('subject', 'No subject')}")
+        
+        # Extract email details
+        from_email = body.get("from", "unknown@email.com")
+        subject = body.get("subject", "")
+        attachments = body.get("attachments", [])
+        
+        if not attachments:
+            logger.warning("[EMAIL INBOUND] No attachments found")
+            # Send auto-reply asking for document
+            await _send_format_error_reply(from_email, "No se encontró ningún documento adjunto.")
+            return JSONResponse({"ok": False, "error": "No attachments"})
+        
+        # Parse subject: [Property Name] Document Description
+        subject_pattern = r'^\[(.+?)\]\s*(.+)$'
+        match = re.match(subject_pattern, subject.strip())
+        
+        if not match:
+            logger.warning(f"[EMAIL INBOUND] Invalid subject format: {subject}")
+            await _send_format_error_reply(from_email, f"Formato de asunto incorrecto: '{subject}'")
+            return JSONResponse({"ok": False, "error": "Invalid subject format"})
+        
+        property_name = match.group(1).strip()
+        document_hint = match.group(2).strip()
+        
+        logger.info(f"[EMAIL INBOUND] Parsed: property='{property_name}', document='{document_hint}'")
+        
+        # Find matching property (fuzzy search)
+        property_result = sb.table("properties")\
+            .select("id, name")\
+            .ilike("name", f"%{property_name}%")\
+            .limit(1)\
+            .execute()
+        
+        if not property_result.data:
+            logger.warning(f"[EMAIL INBOUND] Property not found: {property_name}")
+            await _send_format_error_reply(from_email, f"No se encontró ninguna propiedad llamada '{property_name}'")
+            return JSONResponse({"ok": False, "error": "Property not found"})
+        
+        property_data = property_result.data[0]
+        property_id = property_data["id"]
+        
+        # Process the first attachment
+        attachment = attachments[0]
+        filename = attachment.get("filename", "document.pdf")
+        content_b64 = attachment.get("content", "")
+        content_type = attachment.get("content_type", "application/pdf")
+        
+        # Decode and save to temp storage
+        file_bytes = base64.b64decode(content_b64)
+        temp_storage_path = f"pending/{property_id}/{uuid.uuid4()}_{filename}"
+        
+        sb.storage.from_(BUCKET).upload(
+            temp_storage_path,
+            file_bytes,
+            {"content-type": content_type, "upsert": "true"}
+        )
+        
+        logger.info(f"[EMAIL INBOUND] Saved to temp storage: {temp_storage_path}")
+        
+        # Classify document using existing function
+        from tools.docs_tools import classify_for_armario
+        classification = classify_for_armario(filename, document_hint)
+        
+        suggested_cajon = classification.get("cajon")
+        suggested_subcajon = classification.get("subcajon")
+        suggested_document_name = classification.get("document_name") or document_hint
+        
+        # Save to pending_document_approvals
+        approval_id = str(uuid.uuid4())
+        insert_result = sb.table("pending_document_approvals").insert({
+            "id": approval_id,
+            "property_id": property_id,
+            "property_name": property_data["name"],
+            "document_hint": document_hint,
+            "suggested_cajon": suggested_cajon,
+            "suggested_subcajon": suggested_subcajon,
+            "suggested_document_name": suggested_document_name,
+            "temp_storage_path": temp_storage_path,
+            "original_filename": filename,
+            "content_type": content_type,
+            "sender_email": from_email,
+            "status": "pending"
+        }).execute()
+        
+        logger.info(f"[EMAIL INBOUND] Created pending approval: {approval_id}")
+        
+        # Send push notification to all subscribed users
+        await _send_push_notification_to_all(
+            title=f"📄 Nueva factura: {property_data['name']}",
+            body=f"{document_hint} - Toca para aprobar",
+            data={"approval_id": approval_id, "property_id": property_id}
+        )
+        
+        return JSONResponse({
+            "ok": True,
+            "approval_id": approval_id,
+            "property_id": property_id,
+            "suggested_location": f"{suggested_cajon}/{suggested_subcajon}"
+        })
+        
+    except Exception as e:
+        logger.error(f"[EMAIL INBOUND] Error: {e}", exc_info=True)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+async def _send_format_error_reply(to_email: str, error_message: str):
+    """Send auto-reply when email format is incorrect."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        from tools.email_tool import send_email
+        
+        subject = "⚠️ Formato incorrecto - ABOKA AI"
+        html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #dc2626;">⚠️ Formato de email incorrecto</h2>
+            <p><strong>Error:</strong> {error_message}</p>
+            
+            <h3>Formato correcto:</h3>
+            <p>El asunto del email debe seguir este formato:</p>
+            <pre style="background: #f3f4f6; padding: 10px; border-radius: 5px;">[Nombre de la Propiedad] Descripción del documento</pre>
+            
+            <h3>Ejemplos válidos:</h3>
+            <ul>
+                <li><code>[Casa Alberto] Factura Aire Acondicionado</code></li>
+                <li><code>[Piso Centro] Presupuesto Cocina</code></li>
+                <li><code>[Villa Rosa] Contrato Obra</code></li>
+            </ul>
+            
+            <p>Por favor, reenvía el documento con el formato correcto.</p>
+            
+            <hr style="border: 1px solid #e5e7eb; margin: 20px 0;">
+            <p style="color: #6b7280; font-size: 12px;">Este es un mensaje automático de ABOKA AI.</p>
+        </div>
+        """
+        
+        send_email(to=[to_email], subject=subject, html=html)
+        logger.info(f"[EMAIL INBOUND] Sent format error reply to {to_email}")
+        
+    except Exception as e:
+        logger.error(f"[EMAIL INBOUND] Failed to send error reply: {e}")
+
+
+async def _send_push_notification_to_all(title: str, body: str, data: dict = None):
+    """Send push notification to all subscribed users."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Get all push subscriptions
+        result = sb.table("push_subscriptions").select("*").execute()
+        subscriptions = result.data or []
+        
+        if not subscriptions:
+            logger.info("[PUSH] No subscriptions found")
+            return
+        
+        # Import pywebpush
+        try:
+            from pywebpush import webpush, WebPushException
+        except ImportError:
+            logger.warning("[PUSH] pywebpush not installed, skipping notifications")
+            return
+        
+        vapid_private_key = os.getenv("VAPID_PRIVATE_KEY")
+        vapid_email = os.getenv("VAPID_EMAIL", "mailto:hello@tumai.us")
+        
+        if not vapid_private_key:
+            logger.warning("[PUSH] VAPID_PRIVATE_KEY not configured")
+            return
+        
+        import json
+        payload = json.dumps({
+            "title": title,
+            "body": body,
+            "data": data or {},
+            "icon": "/icon-192.png",
+            "badge": "/badge-72.png"
+        })
+        
+        sent_count = 0
+        for sub in subscriptions:
+            try:
+                subscription_info = {
+                    "endpoint": sub["endpoint"],
+                    "keys": {
+                        "p256dh": sub["p256dh"],
+                        "auth": sub["auth"]
+                    }
+                }
+                
+                webpush(
+                    subscription_info=subscription_info,
+                    data=payload,
+                    vapid_private_key=vapid_private_key,
+                    vapid_claims={"sub": vapid_email}
+                )
+                sent_count += 1
+                
+            except WebPushException as e:
+                if e.response and e.response.status_code == 410:
+                    # Subscription expired, remove it
+                    sb.table("push_subscriptions").delete().eq("id", sub["id"]).execute()
+                    logger.info(f"[PUSH] Removed expired subscription: {sub['id']}")
+                else:
+                    logger.error(f"[PUSH] Failed to send to {sub['id']}: {e}")
+        
+        logger.info(f"[PUSH] Sent {sent_count}/{len(subscriptions)} notifications")
+        
+    except Exception as e:
+        logger.error(f"[PUSH] Error sending notifications: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PENDING DOCUMENT APPROVALS API
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/approvals/pending")
+async def get_pending_approvals(property_id: str = None):
+    """Get all pending document approvals, optionally filtered by property."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        query = sb.table("pending_document_approvals")\
+            .select("*")\
+            .eq("status", "pending")\
+            .order("created_at", desc=True)
+        
+        if property_id:
+            query = query.eq("property_id", property_id)
+        
+        result = query.execute()
+        approvals = result.data or []
+        
+        # Add signed URLs for previewing documents
+        for approval in approvals:
+            if approval.get("temp_storage_path"):
+                try:
+                    signed = sb.storage.from_(BUCKET).create_signed_url(
+                        approval["temp_storage_path"], 3600
+                    )
+                    approval["preview_url"] = signed.get("signedURL")
+                except:
+                    approval["preview_url"] = None
+        
+        return JSONResponse({
+            "ok": True,
+            "approvals": approvals,
+            "count": len(approvals)
+        })
+        
+    except Exception as e:
+        logger.error(f"[API] Error fetching pending approvals: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/api/approvals/{approval_id}/approve")
+async def approve_document(approval_id: str, request: Request):
+    """Approve a pending document and upload it to Armario Digital."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        body = await request.json()
+        
+        # Get the pending approval
+        approval_result = sb.table("pending_document_approvals")\
+            .select("*")\
+            .eq("id", approval_id)\
+            .eq("status", "pending")\
+            .single()\
+            .execute()
+        
+        if not approval_result.data:
+            return JSONResponse({"ok": False, "error": "Approval not found or already processed"}, status_code=404)
+        
+        approval = approval_result.data
+        
+        # Allow overriding the suggested location
+        cajon = body.get("cajon", approval["suggested_cajon"])
+        subcajon = body.get("subcajon", approval["suggested_subcajon"])
+        document_name = body.get("document_name", approval["suggested_document_name"])
+        
+        # Download from temp storage
+        temp_path = approval["temp_storage_path"]
+        file_bytes = sb.storage.from_(BUCKET).download(temp_path)
+        
+        # Upload to Armario Digital using existing function
+        from tools.docs_tools import upload_to_armario
+        
+        upload_result = upload_to_armario(
+            property_id=approval["property_id"],
+            file_bytes=file_bytes,
+            filename=approval["original_filename"],
+            cajon=cajon,
+            subcajon=subcajon,
+            document_name=document_name
+        )
+        
+        logger.info(f"[APPROVE] Uploaded document: {upload_result}")
+        
+        # Update approval status
+        sb.table("pending_document_approvals")\
+            .update({
+                "status": "approved",
+                "processed_at": "now()"
+            })\
+            .eq("id", approval_id)\
+            .execute()
+        
+        # Delete temp file
+        try:
+            sb.storage.from_(BUCKET).remove([temp_path])
+        except:
+            pass
+        
+        # Trigger extraction if it's a PDF (the existing flow)
+        # This happens automatically in upload_to_armario if configured
+        
+        return JSONResponse({
+            "ok": True,
+            "message": f"Documento aprobado y subido a {cajon}/{subcajon}",
+            "upload_result": upload_result
+        })
+        
+    except Exception as e:
+        logger.error(f"[API] Error approving document: {e}", exc_info=True)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/api/approvals/{approval_id}/reject")
+async def reject_document(approval_id: str, request: Request):
+    """Reject a pending document approval."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        body = await request.json()
+        reason = body.get("reason", "Rechazado por el usuario")
+        
+        # Update approval status
+        result = sb.table("pending_document_approvals")\
+            .update({
+                "status": "rejected",
+                "rejection_reason": reason,
+                "processed_at": "now()"
+            })\
+            .eq("id", approval_id)\
+            .eq("status", "pending")\
+            .execute()
+        
+        if not result.data:
+            return JSONResponse({"ok": False, "error": "Approval not found or already processed"}, status_code=404)
+        
+        # Optionally delete the temp file
+        approval = result.data[0]
+        try:
+            sb.storage.from_(BUCKET).remove([approval["temp_storage_path"]])
+        except:
+            pass
+        
+        logger.info(f"[REJECT] Document rejected: {approval_id}")
+        
+        return JSONResponse({
+            "ok": True,
+            "message": "Documento rechazado"
+        })
+        
+    except Exception as e:
+        logger.error(f"[API] Error rejecting document: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PUSH NOTIFICATIONS API
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.post("/api/push/subscribe")
+async def subscribe_push(request: Request):
+    """Subscribe a device for push notifications."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        body = await request.json()
+        
+        user_identifier = body.get("user_identifier", "default_user")
+        subscription = body.get("subscription", {})
+        
+        endpoint = subscription.get("endpoint")
+        keys = subscription.get("keys", {})
+        p256dh = keys.get("p256dh")
+        auth = keys.get("auth")
+        
+        if not endpoint or not p256dh or not auth:
+            return JSONResponse({"ok": False, "error": "Invalid subscription data"}, status_code=400)
+        
+        # Upsert subscription
+        sb.table("push_subscriptions").upsert({
+            "user_identifier": user_identifier,
+            "endpoint": endpoint,
+            "p256dh": p256dh,
+            "auth": auth,
+            "last_used_at": "now()"
+        }, on_conflict="endpoint").execute()
+        
+        logger.info(f"[PUSH] Subscription saved for {user_identifier}")
+        
+        return JSONResponse({"ok": True, "message": "Subscribed to push notifications"})
+        
+    except Exception as e:
+        logger.error(f"[API] Error subscribing to push: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.delete("/api/push/unsubscribe")
+async def unsubscribe_push(request: Request):
+    """Unsubscribe a device from push notifications."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        body = await request.json()
+        endpoint = body.get("endpoint")
+        
+        if not endpoint:
+            return JSONResponse({"ok": False, "error": "Endpoint required"}, status_code=400)
+        
+        sb.table("push_subscriptions").delete().eq("endpoint", endpoint).execute()
+        
+        logger.info(f"[PUSH] Unsubscribed: {endpoint[:50]}...")
+        
+        return JSONResponse({"ok": True, "message": "Unsubscribed from push notifications"})
+        
+    except Exception as e:
+        logger.error(f"[API] Error unsubscribing from push: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.get("/api/push/vapid-public-key")
+async def get_vapid_public_key():
+    """Get the VAPID public key for Web Push subscription."""
+    vapid_public_key = os.getenv("VAPID_PUBLIC_KEY")
+    
+    if not vapid_public_key:
+        return JSONResponse({"ok": False, "error": "VAPID not configured"}, status_code=500)
+    
+    return JSONResponse({"ok": True, "publicKey": vapid_public_key})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # ESTUDIO ECONÓMICO ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════
 

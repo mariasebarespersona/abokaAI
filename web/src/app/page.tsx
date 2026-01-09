@@ -3,12 +3,15 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { PropertiesDrawer } from '@/components/PropertiesDrawer'
 import { HomeProperty } from '@/types/maninos'
-import { Menu, Building2, FileSpreadsheet, FolderOpen, LayoutDashboard, Camera } from 'lucide-react'
+import { Menu, Building2, FileSpreadsheet, FolderOpen, LayoutDashboard, Camera, Inbox, Monitor } from 'lucide-react'
 import { AbokaExcel } from '@/components/aboka/AbokaExcel'
 import { ArmarioDigital } from '@/components/aboka/ArmarioDigital'
 import { PropertyDashboard } from '@/components/aboka/PropertyDashboard'
 import { PhotosGallery } from '@/components/aboka/PhotosGallery'
+import { PendingApprovals, ApprovalsBadge } from '@/components/aboka/PendingApprovals'
+import { MobileApprovalsView } from '@/components/aboka/MobileApprovalsView'
 import { ChatPanel } from '@/components/ChatPanel'
+import { useIsMobile } from '@/hooks/useIsMobile'
 
 // We need to fetch properties to pass to the Drawer
 // This logic is duplicated from ChatPage but necessary for the layout level if we lift state
@@ -18,14 +21,18 @@ export default function AbokaWorkspace() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [propertiesList, setPropertiesList] = useState<HomeProperty[]>([])
   
+  // Detect mobile device
+  const isMobile = useIsMobile(768)
+  const [forceDesktop, setForceDesktop] = useState(false)
+  
   // Global Selection State
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null)
   
   // Property Creation Mode - only active when "New Evaluation" is clicked
   const [isCreatingProperty, setIsCreatingProperty] = useState(false)
   
-  // Active Panel Tab: 'dashboard', 'excel', 'docs' or 'photos'
-  const [activePanel, setActivePanel] = useState<'dashboard' | 'excel' | 'docs' | 'photos'>('dashboard')
+  // Active Panel Tab: 'dashboard', 'excel', 'docs', 'photos' or 'approvals'
+  const [activePanel, setActivePanel] = useState<'dashboard' | 'excel' | 'docs' | 'photos' | 'approvals'>('dashboard')
   
   // Refresh key - changes when data is updated (chat, documents, excel)
   const [dataRefreshKey, setDataRefreshKey] = useState(0)
@@ -82,6 +89,21 @@ export default function AbokaWorkspace() {
   const selectedProperty = propertiesList.find(p => p.id === selectedPropertyId)
   const selectedPropertyName = selectedProperty?.name || null
 
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // MOBILE VIEW: Simplified approvals-only interface
+  // ═══════════════════════════════════════════════════════════════════════════════
+  if (isMobile && !forceDesktop) {
+    return (
+      <MobileApprovalsView 
+        onSwitchToDesktop={() => setForceDesktop(true)}
+        onApprovalProcessed={handleDataUpdated}
+      />
+    )
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // DESKTOP VIEW: Full application
+  // ═══════════════════════════════════════════════════════════════════════════════
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden font-sans text-slate-900">
       
@@ -171,6 +193,18 @@ export default function AbokaWorkspace() {
               <Camera size={16} />
               Fotos
             </button>
+            <button
+              onClick={() => setActivePanel('approvals')}
+              className={`relative flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activePanel === 'approvals'
+                  ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Inbox size={16} />
+              Aprobaciones
+              <ApprovalsBadge className={activePanel === 'approvals' ? 'bg-white text-orange-500' : ''} />
+            </button>
             
             {/* Property Name Badge */}
             {selectedPropertyName && (
@@ -201,14 +235,25 @@ export default function AbokaWorkspace() {
                   propertyName={selectedPropertyName}
                   onDocumentUploaded={handleDataUpdated}
                 />
-              ) : (
+              ) : activePanel === 'photos' ? (
                 <PhotosGallery 
                   key={`photos-${selectedPropertyId}-${dataRefreshKey}`}
                   propertyId={selectedPropertyId} 
                   propertyName={selectedPropertyName}
                   onPhotoUploaded={handleDataUpdated}
                 />
-              )
+              ) : activePanel === 'approvals' ? (
+                <PendingApprovals 
+                  key={`approvals-${dataRefreshKey}`}
+                  onApprovalProcessed={handleDataUpdated}
+                />
+              ) : null
+            ) : activePanel === 'approvals' ? (
+              // Approvals are accessible without property selection
+              <PendingApprovals 
+                key={`approvals-${dataRefreshKey}`}
+                onApprovalProcessed={handleDataUpdated}
+              />
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
                 <Building2 size={48} className="mb-4 opacity-20" />
