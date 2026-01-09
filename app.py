@@ -4526,13 +4526,22 @@ async def approve_document(approval_id: str, request: Request):
         approval = approval_result.data
         
         # Allow overriding the suggested location
-        cajon = body.get("cajon", approval["suggested_cajon"])
-        subcajon = body.get("subcajon", approval["suggested_subcajon"])
-        document_name = body.get("document_name", approval["suggested_document_name"])
+        cajon = body.get("cajon", approval["suggested_cajon"]) or "REFORMA"
+        subcajon = body.get("subcajon", approval["suggested_subcajon"]) or "Partidas"
+        document_name = body.get("document_name", approval["suggested_document_name"]) or approval["document_hint"]
+        
+        logger.info(f"[APPROVE] Processing: cajon={cajon}, subcajon={subcajon}, doc_name={document_name}")
         
         # Download from temp storage
         temp_path = approval["temp_storage_path"]
-        file_bytes = sb.storage.from_(BUCKET).download(temp_path)
+        logger.info(f"[APPROVE] Downloading from temp: {temp_path}")
+        
+        try:
+            file_bytes = sb.storage.from_(BUCKET).download(temp_path)
+            logger.info(f"[APPROVE] Downloaded {len(file_bytes)} bytes")
+        except Exception as download_err:
+            logger.error(f"[APPROVE] Failed to download from temp: {download_err}")
+            return JSONResponse({"ok": False, "error": f"Failed to download temp file: {download_err}"}, status_code=500)
         
         # Upload to Armario Digital using existing function
         from tools.docs_tools import upload_to_armario
@@ -4546,7 +4555,11 @@ async def approve_document(approval_id: str, request: Request):
             document_name=document_name
         )
         
-        logger.info(f"[APPROVE] Uploaded document: {upload_result}")
+        logger.info(f"[APPROVE] Upload result: {upload_result}")
+        
+        if not upload_result.get("success", True):
+            logger.error(f"[APPROVE] Upload failed: {upload_result}")
+            return JSONResponse({"ok": False, "error": f"Upload failed: {upload_result.get('error', 'Unknown')}"}, status_code=500)
         
         # Update approval status
         sb.table("pending_document_approvals")\
