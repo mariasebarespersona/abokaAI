@@ -933,23 +933,32 @@ Datos extraídos del documento '{doc.get('document_name')}':
         
         # 4. Extract text based on content type
         document_text = ""
+        
+        logger.info(f"[query_armario_document] File info: content_type={content_type}, storage_path={storage_path}")
+        
         if 'file_bytes' in dir() and file_bytes:
-            if "pdf" in content_type.lower():
+            logger.info(f"[query_armario_document] File size: {len(file_bytes)} bytes, first 20 bytes: {file_bytes[:20]}")
+            
+            if "pdf" in content_type.lower() or storage_path.lower().endswith('.pdf'):
                 try:
                     import fitz  # PyMuPDF
                     pdf_doc = fitz.open(stream=file_bytes, filetype="pdf")
+                    num_pages = len(pdf_doc)
+                    logger.info(f"[query_armario_document] PDF opened: {num_pages} pages")
+                    
                     for page in pdf_doc:
                         document_text += page.get_text()
                     pdf_doc.close()
                     logger.info(f"[query_armario_document] Extracted {len(document_text)} chars from PDF")
-                except ImportError:
-                    logger.warning("[query_armario_document] PyMuPDF not available, using extracted_data only")
+                    
+                except ImportError as ie:
+                    logger.error(f"[query_armario_document] PyMuPDF not installed: {ie}")
                 except Exception as pdf_err:
-                    logger.warning(f"[query_armario_document] PDF extraction error: {pdf_err}")
+                    logger.error(f"[query_armario_document] PDF extraction error: {pdf_err}")
         
         # 5. Build context and answer with GPT
         context = ""
-        if document_text:
+        if document_text and len(document_text.strip()) > 10:
             # Truncate if too long
             max_chars = 8000
             if len(document_text) > max_chars:
@@ -962,7 +971,7 @@ Datos extraídos del documento '{doc.get('document_name')}':
         if not context:
             return {
                 "ok": False,
-                "answer": "No pude extraer información del documento. Puede que sea una imagen o un PDF escaneado.",
+                "answer": f"No pude extraer texto del documento. Content-type: {content_type}. El PDF puede ser un escaneo/imagen. Tamaño: {len(file_bytes) if 'file_bytes' in dir() else 0} bytes.",
                 "document_found": True
             }
         
