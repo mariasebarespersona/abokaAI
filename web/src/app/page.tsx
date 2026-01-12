@@ -4,12 +4,10 @@ import React, { useState, useEffect, useRef } from 'react'
 import { PropertiesDrawer } from '@/components/PropertiesDrawer'
 import { MobileHomeProperty } from '@/types/maninos'
 import { Bot, Menu, Building2 } from 'lucide-react'
-import ChatPage from './chat/page' // Reusing the Chat Logic but wrapping it
+import { ChatPanel } from '@/components/ChatPanel'
 import { AbokaExcel } from '@/components/aboka/AbokaExcel'
 
 // We need to fetch properties to pass to the Drawer
-// This logic is duplicated from ChatPage but necessary for the layout level if we lift state
-// ideally we would refactor ChatPage to be just the "Right Column" component
 
 export default function AbokaWorkspace() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
@@ -109,12 +107,8 @@ export default function AbokaWorkspace() {
 
         {/* COLUMN 3: CHAT (Right Sidebar - 35%) */}
         <section className="w-[450px] flex-shrink-0 bg-white shadow-xl z-10 flex flex-col h-full">
-           {/* We reuse the ChatPage logic but wrapped in a container. 
-               Note: ChatPage handles its own state for now, but shares localStorage 'maninos_property_id' 
-               so it syncs on mount/updates. 
-           */}
            <div className="h-full overflow-hidden">
-             <ChatPage />
+             <ChatPanel propertyId={selectedPropertyId} />
            </div>
         </section>
 
