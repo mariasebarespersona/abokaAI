@@ -3,22 +3,33 @@
 const CACHE_NAME = 'aboka-ai-v1';
 const OFFLINE_URL = '/offline.html';
 
-// Files to cache for offline use
+// Files to cache for offline use (only files that exist)
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png'
+  '/offline.html'
 ];
 
 // Install event - cache static assets
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing service worker...');
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Caching static assets');
-      return cache.addAll(STATIC_ASSETS);
-    })
+    caches.open(CACHE_NAME)
+      .then((cache) => {
+        console.log('[SW] Caching static assets');
+        // Use addAll but catch errors for missing files
+        return Promise.all(
+          STATIC_ASSETS.map(url => 
+            cache.add(url).catch(err => console.warn('[SW] Failed to cache:', url, err))
+          )
+        );
+      })
+      .then(() => {
+        console.log('[SW] ✅ Service Worker installed successfully');
+      })
+      .catch(err => {
+        console.error('[SW] Install failed:', err);
+      })
   );
   // Activate immediately
   self.skipWaiting();
@@ -107,14 +118,9 @@ self.addEventListener('push', (event) => {
   
   const options = {
     body: data.body,
-    icon: data.icon || '/icon-192.png',
-    badge: data.badge || '/badge-72.png',
-    vibrate: [100, 50, 100],
+    icon: data.icon,
+    badge: data.badge,
     data: data.data,
-    actions: [
-      { action: 'approve', title: '✅ Ver', icon: '/icon-approve.png' },
-      { action: 'dismiss', title: '❌ Cerrar', icon: '/icon-dismiss.png' }
-    ],
     requireInteraction: true,
     tag: data.data?.approval_id || 'default'
   };
