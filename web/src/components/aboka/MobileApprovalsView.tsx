@@ -192,12 +192,20 @@ export function MobileApprovalsView({ onSwitchToDesktop, onApprovalProcessed }: 
     setSubscribing(true);
     setError(null);
     
-    const result = await subscribeToPush();
-    
-    if (result.success) {
-      setIsSubscribed(true);
-    } else {
-      setError(`Error: ${result.error}`);
+    try {
+      console.log('[Mobile] Starting push subscription...');
+      const result = await subscribeToPush();
+      console.log('[Mobile] Subscribe result:', result);
+      
+      if (result.success) {
+        setIsSubscribed(true);
+        setError(null);
+      } else {
+        setError(result.error || 'Error desconocido al activar');
+      }
+    } catch (err) {
+      console.error('[Mobile] Unexpected error:', err);
+      setError(`Error inesperado: ${err instanceof Error ? err.message : String(err)}`);
     }
     
     setSubscribing(false);
@@ -368,9 +376,15 @@ export function MobileApprovalsView({ onSwitchToDesktop, onApprovalProcessed }: 
               disabled={subscribing}
               className="px-4 py-2 bg-white text-orange-600 font-semibold rounded-lg text-sm"
             >
-              {subscribing ? '...' : 'Activar'}
+              {subscribing ? 'Activando...' : 'Activar'}
             </button>
           </div>
+          {/* Show error inline if subscription fails */}
+          {error && (
+            <div className="mt-2 p-2 bg-red-900/50 rounded text-white text-xs">
+              ⚠️ {error}
+            </div>
+          )}
         </div>
       )}
 
