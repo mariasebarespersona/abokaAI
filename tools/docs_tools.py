@@ -1429,9 +1429,35 @@ def upload_to_armario(
         
         if result.data:
             logger.info(f"✅ [upload_to_armario] Document registered: {document_name} in {cajon}/{subcajon}")
-            return result.data
+            # Ensure we return document_id
+            response = result.data
+            if isinstance(response, dict) and not response.get("document_id"):
+                # Try to get document_id from database by storage_path
+                doc_result = sb.table("armario_documents")\
+                    .select("id")\
+                    .eq("property_id", property_id)\
+                    .eq("storage_path", storage_path)\
+                    .single()\
+                    .execute()
+                if doc_result.data:
+                    response["document_id"] = doc_result.data["id"]
+            response["storage_path"] = storage_path
+            return response
         else:
-            return {"success": True, "storage_path": storage_path, "message": "Uploaded but RPC returned no data"}
+            # RPC returned no data, try to get document_id directly
+            doc_result = sb.table("armario_documents")\
+                .select("id")\
+                .eq("property_id", property_id)\
+                .eq("storage_path", storage_path)\
+                .single()\
+                .execute()
+            document_id = doc_result.data["id"] if doc_result.data else None
+            return {
+                "success": True, 
+                "storage_path": storage_path, 
+                "document_id": document_id,
+                "message": "Uploaded but RPC returned no data"
+            }
         
     except Exception as e:
         logger.error(f"❌ [upload_to_armario] Error: {e}")

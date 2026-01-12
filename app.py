@@ -4858,13 +4858,77 @@ async def approve_document(approval_id: str, request: Request):
         except:
             pass
         
-        # Trigger extraction if it's a PDF (the existing flow)
-        # This happens automatically in upload_to_armario if configured
+        # ===================================================================
+        # AUTOMATIC VALUE EXTRACTION FOR INVOICES
+        # ===================================================================
+        extraction_result = None
+        document_id = upload_result.get("document_id")
+        storage_path = upload_result.get("storage_path")
+        
+        # Only extract if it's a PDF and we have the document ID
+        if document_id and storage_path and approval["original_filename"].lower().endswith(".pdf"):
+            try:
+                from tools.extraction_tools import (
+                    extract_document_data,
+                    save_extraction_result,
+                    get_estudio_label
+                )
+                
+                logger.info(f"[APPROVE] 🔍 Starting value extraction for document {document_id}")
+                
+                # Extract values from the document
+                extraction_result = extract_document_data(
+                    property_id=approval["property_id"],
+                    document_id=document_id,
+                    storage_path=storage_path,
+                    file_bytes=file_bytes
+                )
+                
+                logger.info(f"[APPROVE] Extraction result: {extraction_result}")
+                
+                if extraction_result.get("success"):
+                    # Save extraction result to database
+                    save_result = save_extraction_result(
+                        document_id=document_id,
+                        property_id=approval["property_id"],
+                        extracted_data=extraction_result["extracted_data"],
+                        mapped_estudio_key=extraction_result["mapped_estudio_key"],
+                        confidence=extraction_result["confidence"],
+                        original_approval_id=approval_id
+                    )
+                    
+                    # Send push notification for value approval
+                    valor = extraction_result["extracted_data"].get("valor_total")
+                    concepto = extraction_result["extracted_data"].get("concepto_detectado", "factura")
+                    estudio_key = extraction_result["mapped_estudio_key"]
+                    
+                    if valor and estudio_key:
+                        estudio_label = get_estudio_label(estudio_key)
+                        
+                        await _send_push_notification_to_all(
+                            title=f"💰 Valor detectado: {approval['property_name']}",
+                            body=f"{valor:.0f}€ → {estudio_label}. Toca para aprobar.",
+                            data={
+                                "type": "value_extraction",
+                                "document_id": document_id,
+                                "property_id": approval["property_id"],
+                                "property_name": approval["property_name"],
+                                "valor": valor,
+                                "concepto": concepto,
+                                "estudio_key": estudio_key
+                            }
+                        )
+                        logger.info(f"[APPROVE] 🔔 Sent push notification for value extraction")
+                    
+            except Exception as extract_err:
+                logger.error(f"[APPROVE] ⚠️ Extraction failed (non-blocking): {extract_err}")
+                # Don't fail the approval, just log the error
         
         return JSONResponse({
             "ok": True,
             "message": f"Documento aprobado y subido a {cajon}/{subcajon}",
-            "upload_result": upload_result
+            "upload_result": upload_result,
+            "extraction": extraction_result
         })
         
     except Exception as e:
@@ -4912,6 +4976,100 @@ async def reject_document(approval_id: str, request: Request):
         
     except Exception as e:
         logger.error(f"[API] Error rejecting document: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VALUE EXTRACTION APPROVALS API (for Estudio Económico)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/extractions/pending")
+async def get_pending_extractions_api(property_id: str = None):
+    """Get all pending value extractions, optionally filtered by property."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        query = sb.table("armario_documents")\
+            .select("id, document_name, original_filename, cajon, subcajon, extracted_data, mapped_estudio_key, extraction_confidence, extracted_at, property_id")\
+            .eq("extraction_status", "pending_approval")\
+            .order("extracted_at", desc=True)
+        
+        if property_id:
+            query = query.eq("property_id", property_id)
+        
+        result = query.execute()
+        
+        # Enrich with property names
+        extractions = []
+        for doc in result.data:
+            prop_result = sb.table("properties").select("name").eq("id", doc["property_id"]).single().execute()
+            property_name = prop_result.data.get("name", "Desconocida") if prop_result.data else "Desconocida"
+            
+            extractions.append({
+                "document_id": doc["id"],
+                "document_name": doc["document_name"],
+                "original_filename": doc["original_filename"],
+                "cajon": doc["cajon"],
+                "subcajon": doc["subcajon"],
+                "extracted_data": doc["extracted_data"] or {},
+                "mapped_estudio_key": doc["mapped_estudio_key"],
+                "extraction_confidence": doc["extraction_confidence"],
+                "extracted_at": doc["extracted_at"],
+                "property_id": doc["property_id"],
+                "property_name": property_name
+            })
+        
+        return JSONResponse({"ok": True, "extractions": extractions})
+        
+    except Exception as e:
+        logger.error(f"[API] Error fetching pending extractions: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/api/extractions/{document_id}/approve")
+async def approve_extraction_api(document_id: str, request: Request):
+    """Approve a value extraction and add it to the Estudio Económico."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        body = await request.json()
+        estudio_key_override = body.get("estudio_key")  # Optional override
+        
+        from tools.extraction_tools import approve_extraction, get_estudio_label
+        
+        result = approve_extraction(document_id, estudio_key_override)
+        
+        if result.get("ok"):
+            logger.info(f"[API] ✅ Extraction approved for document {document_id}")
+        else:
+            logger.error(f"[API] ❌ Extraction approval failed: {result.get('error')}")
+        
+        return JSONResponse(result)
+        
+    except Exception as e:
+        logger.error(f"[API] Error approving extraction: {e}", exc_info=True)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/api/extractions/{document_id}/reject")
+async def reject_extraction_api(document_id: str):
+    """Reject a value extraction."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        from tools.extraction_tools import reject_extraction
+        
+        result = reject_extraction(document_id)
+        
+        logger.info(f"[API] Extraction rejected for document {document_id}")
+        
+        return JSONResponse(result)
+        
+    except Exception as e:
+        logger.error(f"[API] Error rejecting extraction: {e}")
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 

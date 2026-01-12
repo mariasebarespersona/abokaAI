@@ -1,576 +1,653 @@
 """
-Extraction Tools - Auto-extract financial data from documents using GPT-4.
+Extraction Tools - Auto-extract structured data from documents using RAG.
 
-ABOKA AI: Automatically extracts values from invoices, receipts, and contracts
-to populate the "Real" column of the Estudio Económico.
-
-Flow:
-1. User uploads document to Armario Digital
-2. GPT-4 extracts: concept, value, date, provider
-3. System maps concept to Estudio Económico item
-4. Agent proposes to user via chat
-5. If user approves → update Estudio Económico "Real" column
+This module provides functions to automatically extract structured information
+(e.g., asking_price, market_value) from uploaded documents and store it for
+later user confirmation.
 """
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 import logging
-import json
-import base64
+import re
 from datetime import datetime
 
-from openai import OpenAI
+from .rag_maninos import query_documents_maninos
 from .supabase_client import sb
 
 logger = logging.getLogger(__name__)
 
-# Initialize OpenAI client
-try:
-    import os
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-except Exception as e:
-    logger.warning(f"[extraction] Could not initialize OpenAI client: {e}")
-    client = None
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAPPING: Conceptos detectados → Items del Estudio Económico
-# ═══════════════════════════════════════════════════════════════════════════════
-
-CONCEPT_TO_ESTUDIO_KEY = {
-    # COMPRA
-    "escritura": "compra_precio",
-    "compraventa": "compra_precio",
-    "precio compra": "compra_precio",
-    "itp": "compra_itp",
-    "impuesto transmisiones": "compra_itp",
-    "transmisiones patrimoniales": "compra_itp",
-    "notaría": "compra_notaria",
-    "notario": "compra_notaria",
-    "registro": "compra_notaria",
-    "gestoría": "compra_notaria",
-    "ibi": "compra_ibi",
-    
-    # REFORMA - Licencias
-    "arquitecto": "reforma_proyecto",
-    "proyecto": "reforma_proyecto",
-    "licencia obra": "reforma_licencia",
-    "icio": "reforma_licencia",
-    
-    # REFORMA - Obra
-    "reforma": "reforma_contrata",
-    "contrata": "reforma_contrata",
-    "obra": "reforma_contrata",
-    "constructor": "reforma_contrata",
-    "albañil": "reforma_contrata",
-    
-    # REFORMA - Materiales
-    "cocina": "reforma_cocina",
-    "electrodomésticos": "reforma_cocina",
-    "electros": "reforma_cocina",
-    "baño": "reforma_banos",
-    "sanitarios": "reforma_banos",
-    "grifería": "reforma_banos",
-    "suelo": "reforma_suelos",
-    "tarima": "reforma_suelos",
-    "parquet": "reforma_suelos",
-    "armario": "reforma_carpinteria",
-    "carpintería": "reforma_carpinteria",
-    "muebles": "reforma_carpinteria",
-    "aire acondicionado": "reforma_ac",
-    "climatización": "reforma_ac",
-    "split": "reforma_ac",
-    "aire": "reforma_ac",
-    "home staging": "reforma_amueblamiento",
-    "decoración": "reforma_amueblamiento",
-    "amueblamiento": "reforma_amueblamiento",
-    
-    # FINANCIERO
-    "hipoteca": "fin_constitucion",
-    "préstamo": "fin_constitucion",
-    "tasación": "fin_tasacion",
-    "intereses": "fin_intereses",
-    "cancelación": "fin_cancelacion",
-    "seguro": "fin_seguro",
-    "multirriesgo": "fin_seguro",
-    
-    # GESTIONES
-    "comunidad": "gest_comunidad",
-    "vecinos": "gest_comunidad",
-    "suministros": "gest_suministros",
-    "luz": "gest_suministros",
-    "gas": "gest_suministros",
-    "agua": "gest_suministros",
-    "electricidad": "gest_suministros",
-    "plusvalía": "gest_plusvalia",
-    "comisión": "gest_comision",
-    "inmobiliaria": "gest_comision",
-    "agencia": "gest_comision",
-    
-    # VENTA
-    "venta": "venta_precio",
-    "precio venta": "venta_precio",
-    "alquiler": "venta_alquileres",
-    "renta": "venta_alquileres",
-}
-
-# Nombres legibles para cada key
-ESTUDIO_KEY_LABELS = {
-    "compra_precio": "Precio Compra Activo",
-    "compra_itp": "ITP (Impuesto Transmisiones)",
-    "compra_notaria": "Notaría + Registro + Gestoría",
-    "compra_ibi": "IBI Prorrateado",
-    "compra_gestion": "Gestión ABOKA 1%",
-    "reforma_proyecto": "Proyecto / Arquitecto",
-    "reforma_licencia": "Licencia de Obra / ICIO",
-    "reforma_contrata": "Contrata de Obra",
-    "reforma_cocina": "Mobiliario Cocina + Electros",
-    "reforma_banos": "Sanitarios Baños + Griferías",
-    "reforma_suelos": "Tarima / Suelos",
-    "reforma_carpinteria": "Armarios y Carpintería",
-    "reforma_ac": "Aire Acondicionado",
-    "reforma_otros": "Otros Materiales",
-    "reforma_amueblamiento": "Amueblamiento / Home Staging",
-    "reforma_contingencia": "Contingencia (5-10%)",
-    "fin_constitucion": "Gastos Constitución Hipoteca",
-    "fin_tasacion": "Tasación Oficial",
-    "fin_intereses": "Intereses Soportados",
-    "fin_cancelacion": "Gastos Cancelación Hipoteca",
-    "fin_seguro": "Seguro Multirriesgo",
-    "gest_comunidad": "Comunidad de Propietarios",
-    "gest_ibi": "IBI Anual",
-    "gest_suministros": "Suministros (Luz, Gas, Agua)",
-    "gest_plusvalia": "Plusvalía Municipal",
-    "gest_comision": "Comisión Agencia Venta",
-    "venta_precio": "Precio Venta Vivienda",
-    "venta_alquileres": "Alquileres Temporales",
-}
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAIN EXTRACTION FUNCTION
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def extract_document_data(
-    file_bytes: bytes,
-    filename: str,
-    mime_type: str = "application/pdf"
-) -> Dict[str, Any]:
+def _parse_price(text: str) -> Optional[float]:
     """
-    Extract financial data from a document using GPT-4.
+    Extract numeric price from text.
+    
+    Handles formats:
+    - $32,500
+    - 32500
+    - $32.5k
+    - 32.5K
+    - treinta y dos mil quinientos (Spanish numbers - basic)
+    """
+    if not text:
+        return None
+    
+    text = text.lower().strip()
+    
+    # Remove common words
+    text = re.sub(r'\b(asking|price|valor|value|es|is|de|of)\b', '', text, flags=re.IGNORECASE)
+    
+    # Handle K/k suffix (thousands)
+    k_match = re.search(r'(\d+\.?\d*)\s*k', text, re.IGNORECASE)
+    if k_match:
+        return float(k_match.group(1)) * 1000
+    
+    # Handle standard formats: $32,500 or 32500
+    number_match = re.search(r'\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)', text)
+    if number_match:
+        number_str = number_match.group(1).replace(',', '')
+        return float(number_str)
+    
+    return None
+
+
+def _calculate_confidence(answer: str, query: str) -> float:
+    """
+    Calculate confidence score for extracted value.
+    
+    Based on:
+    - Presence of numeric value (0.5)
+    - Presence of currency symbol (0.1)
+    - Explicit mention of query term (0.2)
+    - Answer length (reasonable = 0.2)
+    """
+    score = 0.0
+    
+    # Has numeric value
+    if re.search(r'\d+', answer):
+        score += 0.5
+    
+    # Has currency symbol or word
+    if '$' in answer or 'dollar' in answer.lower() or 'precio' in answer.lower():
+        score += 0.1
+    
+    # Mentions query term
+    query_lower = query.lower()
+    answer_lower = answer.lower()
+    if any(term in answer_lower for term in ['asking', 'price', 'precio', 'market', 'mercado', 'value', 'valor']):
+        score += 0.2
+    
+    # Reasonable length (not too short, not too long)
+    if 20 < len(answer) < 300:
+        score += 0.2
+    
+    return min(score, 1.0)
+
+
+def extract_listing_data(property_id: str, document_id: str) -> Dict[str, Any]:
+    """
+    Extract structured data from a property listing document.
+    
+    Uses RAG to query the document for:
+    - asking_price
+    - market_value
     
     Args:
-        file_bytes: Raw bytes of the document
-        filename: Original filename
-        mime_type: MIME type of the file
+        property_id: UUID of the property
+        document_id: UUID of the document to extract from
     
     Returns:
         {
-            "success": True/False,
-            "data": {
-                "tipo_documento": "factura",
-                "concepto_detectado": "Instalación aire acondicionado",
-                "valor_total": 5000.0,
-                "fecha_documento": "2024-01-15",
-                "proveedor": "Climatización SL",
-                "numero_factura": "F-2024-0123",
-                "confianza": 0.95
+            "success": bool,
+            "extracted": {
+                "asking_price": {...},
+                "market_value": {...}
             },
-            "error": None or error message
+            "errors": [...]
         }
     """
-    if not client:
-        return {"success": False, "data": None, "error": "OpenAI client not initialized"}
+    logger.info(f"[extract_listing_data] Starting extraction for property {property_id}, document {document_id}")
     
-    logger.info(f"[extract_document_data] Processing {filename} ({mime_type})")
+    result = {
+        "success": False,
+        "extracted": {},
+        "errors": []
+    }
     
+    # Get document info
     try:
-        # For images, use Vision API
-        if mime_type.startswith("image/"):
-            return _extract_from_image(file_bytes, filename, mime_type)
+        doc_result = sb.table("maninos_documents").select("*").eq("id", document_id).single().execute()
+        if not doc_result.data:
+            result["errors"].append(f"Document {document_id} not found")
+            return result
         
-        # For PDFs, we need to extract text first or use a different approach
-        # For now, we'll use a text-based approach with the filename as hint
-        # In production, you'd use pdf2image + Vision or a PDF parser
-        
-        # Simplified: Use filename as context + generic extraction
-        return _extract_with_gpt(file_bytes, filename, mime_type)
+        doc = doc_result.data
+        document_name = doc.get("document_name", "unknown")
+        document_type = doc.get("document_type")
         
     except Exception as e:
-        logger.error(f"[extract_document_data] Error: {e}", exc_info=True)
-        return {"success": False, "data": None, "error": str(e)}
-
-
-def _extract_from_image(file_bytes: bytes, filename: str, mime_type: str) -> Dict:
-    """Extract data from image using GPT-4 Vision."""
+        logger.error(f"[extract_listing_data] Error fetching document: {e}")
+        result["errors"].append(str(e))
+        return result
     
-    base64_image = base64.b64encode(file_bytes).decode('utf-8')
+    # Define extraction queries
+    queries = {
+        "asking_price": "¿Cuál es el precio de venta (asking price) de la propiedad? Responde solo con el número.",
+        "market_value": "¿Cuál es el valor de mercado (market value) estimado de la propiedad? Responde solo con el número."
+    }
     
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {
-                "role": "system",
-                "content": """Eres un experto en análisis de documentos financieros inmobiliarios.
-Tu tarea es extraer información estructurada de facturas, tickets, presupuestos y contratos.
-
-SIEMPRE responde en JSON con este formato exacto:
-{
-    "tipo_documento": "factura" | "presupuesto" | "contrato" | "ticket" | "recibo" | "otro",
-    "concepto_detectado": "descripción breve del concepto principal",
-    "valor_total": número (solo el valor numérico, sin símbolo €),
-    "valor_sin_iva": número o null,
-    "iva_porcentaje": número o null,
-    "fecha_documento": "YYYY-MM-DD" o null,
-    "proveedor": "nombre del proveedor/empresa" o null,
-    "numero_factura": "número de factura/ticket" o null,
-    "confianza": número entre 0.0 y 1.0 (tu confianza en la extracción)
-}
-
-Reglas:
-- El concepto debe ser breve y descriptivo (ej: "aire acondicionado", "reforma baño", "notaría")
-- Si no puedes identificar un campo con certeza, usa null
-- El valor_total SIEMPRE debe incluir IVA si es una factura española
-- La confianza debe reflejar la claridad del documento"""
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"Analiza este documento ({filename}) y extrae la información financiera:"
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{mime_type};base64,{base64_image}",
-                            "detail": "high"
-                        }
-                    }
-                ]
-            }
-        ],
-        max_tokens=1000,
-        temperature=0.1
-    )
+    extracted_at = datetime.utcnow().isoformat()
     
-    return _parse_extraction_response(response, filename)
-
-
-def _extract_with_gpt(file_bytes: bytes, filename: str, mime_type: str) -> Dict:
-    """Extract data using GPT-4 with text content or filename hints."""
-    
-    # Try to extract text from PDF
-    text_content = ""
-    if mime_type == "application/pdf":
+    # Extract each field
+    for field, query in queries.items():
         try:
-            import fitz  # PyMuPDF
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
-            for page in doc:
-                text_content += page.get_text()
-            doc.close()
-        except ImportError:
-            logger.warning("[extract_with_gpt] PyMuPDF not installed, using filename only")
+            logger.info(f"[extract_listing_data] Extracting {field} with query: {query}")
+            
+            # Query RAG system
+            rag_result = query_documents_maninos(
+                property_id=property_id,
+                question=query,
+                document_type=document_type,
+                use_reranking=False  # Faster for extraction
+            )
+            
+            answer = rag_result.get("answer", "")
+            
+            # Parse numeric value
+            value = _parse_price(answer)
+            
+            if value and value > 0:
+                confidence = _calculate_confidence(answer, query)
+                
+                result["extracted"][field] = {
+                    "value": value,
+                    "confidence": round(confidence, 2),
+                    "source": document_name,
+                    "extracted_at": extracted_at,
+                    "raw_answer": answer[:200]  # Store first 200 chars for debugging
+                }
+                
+                logger.info(f"[extract_listing_data] ✅ Extracted {field}: ${value} (confidence: {confidence:.2f})")
+            else:
+                logger.warning(f"[extract_listing_data] ⚠️ Could not extract {field} from answer: {answer[:100]}")
+                result["errors"].append(f"Could not parse {field} from: {answer[:100]}")
+        
         except Exception as e:
-            logger.warning(f"[extract_with_gpt] Could not extract PDF text: {e}")
+            logger.error(f"[extract_listing_data] Error extracting {field}: {e}")
+            result["errors"].append(f"Error extracting {field}: {str(e)}")
     
-    # Build prompt
-    if text_content:
-        user_content = f"""Analiza este documento y extrae la información financiera.
-
-Nombre del archivo: {filename}
-
-Contenido del documento:
----
-{text_content[:8000]}
----
-
-Extrae la información en formato JSON."""
+    # Update property with extracted data
+    if result["extracted"]:
+        try:
+            # Get current extracted_data
+            prop_result = sb.table("properties").select("extracted_data").eq("id", property_id).single().execute()
+            current_data = prop_result.data.get("extracted_data") or {}
+            
+            # Merge with new data
+            updated_data = {**current_data, **result["extracted"]}
+            
+            # Update property
+            sb.table("properties").update({"extracted_data": updated_data}).eq("id", property_id).execute()
+            
+            logger.info(f"[extract_listing_data] ✅ Saved extracted data to property {property_id}")
+            result["success"] = True
+            
+        except Exception as e:
+            logger.error(f"[extract_listing_data] Error saving extracted data: {e}")
+            result["errors"].append(f"Error saving: {str(e)}")
     else:
-        user_content = f"""Basándote en el nombre del archivo, intenta inferir qué tipo de documento es y qué información podría contener.
-
-Nombre del archivo: {filename}
-
-Nota: No tengo acceso al contenido del documento, solo al nombre. 
-Si no puedes inferir información del nombre, responde con confianza muy baja (0.1-0.3).
-
-Responde en formato JSON."""
+        logger.warning(f"[extract_listing_data] No data extracted from document {document_name}")
     
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {
-                "role": "system",
-                "content": """Eres un experto en análisis de documentos financieros inmobiliarios.
-Tu tarea es extraer información estructurada de facturas, tickets, presupuestos y contratos.
-
-SIEMPRE responde en JSON con este formato exacto:
-{
-    "tipo_documento": "factura" | "presupuesto" | "contrato" | "ticket" | "recibo" | "otro",
-    "concepto_detectado": "descripción breve del concepto principal",
-    "valor_total": número (solo el valor numérico, sin símbolo €) o null si no se puede determinar,
-    "valor_sin_iva": número o null,
-    "iva_porcentaje": número o null,
-    "fecha_documento": "YYYY-MM-DD" o null,
-    "proveedor": "nombre del proveedor/empresa" o null,
-    "numero_factura": "número de factura/ticket" o null,
-    "confianza": número entre 0.0 y 1.0 (tu confianza en la extracción)
-}
-
-Reglas:
-- El concepto debe ser breve y descriptivo (ej: "aire acondicionado", "reforma baño", "notaría")
-- Si no puedes identificar un campo con certeza, usa null
-- Si solo tienes el nombre del archivo y no el contenido, la confianza debe ser baja (< 0.5)"""
-            },
-            {
-                "role": "user",
-                "content": user_content
-            }
-        ],
-        max_tokens=1000,
-        temperature=0.1
-    )
-    
-    return _parse_extraction_response(response, filename)
+    return result
 
 
-def _parse_extraction_response(response, filename: str) -> Dict:
-    """Parse GPT response and return structured data."""
-    try:
-        content = response.choices[0].message.content
-        
-        # Extract JSON from response (may be wrapped in markdown code blocks)
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0]
-        
-        data = json.loads(content.strip())
-        
-        # Validate required fields
-        if not data.get("concepto_detectado"):
-            return {"success": False, "data": None, "error": "No concept detected"}
-        
-        # Add metadata
-        data["modelo_extraccion"] = "gpt-4o"
-        data["timestamp_extraccion"] = datetime.utcnow().isoformat()
-        data["archivo_origen"] = filename
-        
-        logger.info(f"[extract] Extracted: {data.get('concepto_detectado')} = {data.get('valor_total')} (conf: {data.get('confianza')})")
-        
-        return {"success": True, "data": data, "error": None}
-    except Exception as e:
-        logger.error(f"[extract] Error parsing response: {e}")
-        return {"success": False, "data": None, "error": str(e)}
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# INTELLIGENT MAPPING FUNCTION (GPT-powered)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def map_concept_to_estudio(
-    concepto: str, 
-    property_id: str = None,
-    cajon: str = None,
-    subcajon: str = None
-) -> tuple[Optional[str], float]:
+def get_extracted_data(property_id: str) -> Dict[str, Any]:
     """
-    Map a detected concept to an Estudio Económico item_key using GPT.
-    
-    Uses context (cajón, subcajón) to improve accuracy.
-    
-    Args:
-        concepto: The concept detected from the document
-        property_id: Optional property ID
-        cajon: The cajón where the document was uploaded (e.g., 'REFORMA')
-        subcajon: The subcajón (e.g., 'Partidas')
+    Get extracted data for a property.
     
     Returns:
-        tuple: (item_key, confidence) - e.g., ('reforma_ac', 0.95)
+        {
+            "asking_price": {...} or None,
+            "market_value": {...} or None,
+            ...
+        }
     """
-    if not concepto:
-        return None, 0.0
+    try:
+        result = sb.table("properties").select("extracted_data").eq("id", property_id).single().execute()
+        return result.data.get("extracted_data") or {}
+    except Exception as e:
+        logger.error(f"[get_extracted_data] Error: {e}")
+        return {}
+
+
+def clear_extracted_field(property_id: str, field: str) -> bool:
+    """
+    Clear a specific extracted field (e.g., if user rejected it).
     
-    if not client:
-        logger.warning("[map_concept] OpenAI client not available, using fallback")
-        return _fallback_keyword_mapping(concepto)
+    Args:
+        property_id: UUID of the property
+        field: Field name (e.g., 'asking_price')
+    
+    Returns:
+        True if successful
+    """
+    try:
+        # Get current data
+        result = sb.table("properties").select("extracted_data").eq("id", property_id).single().execute()
+        current_data = result.data.get("extracted_data") or {}
+        
+        # Remove field
+        if field in current_data:
+            del current_data[field]
+            
+            # Update
+            sb.table("properties").update({"extracted_data": current_data}).eq("id", property_id).execute()
+            logger.info(f"[clear_extracted_field] Cleared {field} for property {property_id}")
+            return True
+        
+        return False
+    
+    except Exception as e:
+        logger.error(f"[clear_extracted_field] Error: {e}")
+        return False
+
+
+# ============================================================================
+# INVOICE EXTRACTION TOOLS - For Armario Digital / Estudio Económico
+# ============================================================================
+
+# Mapping from document concepts to Estudio Económico keys
+CONCEPT_TO_ESTUDIO_MAP = {
+    # Reforma items
+    "aire acondicionado": "reforma_ac",
+    "clima": "reforma_ac",
+    "climatización": "reforma_ac",
+    "fontanería": "reforma_fontaneria",
+    "fontanero": "reforma_fontaneria",
+    "electricidad": "reforma_electricidad",
+    "electricista": "reforma_electricidad",
+    "albañilería": "reforma_albanileria",
+    "albañil": "reforma_albanileria",
+    "obra": "reforma_albanileria",
+    "pintura": "reforma_pintura",
+    "pintor": "reforma_pintura",
+    "cocina": "reforma_cocina",
+    "muebles cocina": "reforma_cocina",
+    "baño": "reforma_bano",
+    "sanitarios": "reforma_bano",
+    "suelo": "reforma_suelos",
+    "suelos": "reforma_suelos",
+    "parquet": "reforma_suelos",
+    "ventanas": "reforma_ventanas",
+    "carpintería": "reforma_carpinteria",
+    "puertas": "reforma_carpinteria",
+    "cerrajería": "reforma_cerrajeria",
+    # Compra items
+    "notaría": "compra_notaria",
+    "notario": "compra_notaria",
+    "registro": "compra_registro",
+    "gestoría": "compra_gestoria",
+    "gestor": "compra_gestoria",
+    "itp": "compra_itp",
+    "impuesto": "compra_itp",
+    # Venta items
+    "inmobiliaria": "venta_comision",
+    "comisión venta": "venta_comision",
+}
+
+# Human-readable labels for estudio keys
+ESTUDIO_LABELS = {
+    "reforma_ac": "Aire Acondicionado",
+    "reforma_fontaneria": "Fontanería",
+    "reforma_electricidad": "Electricidad",
+    "reforma_albanileria": "Albañilería",
+    "reforma_pintura": "Pintura",
+    "reforma_cocina": "Cocina",
+    "reforma_bano": "Baño",
+    "reforma_suelos": "Suelos",
+    "reforma_ventanas": "Ventanas",
+    "reforma_carpinteria": "Carpintería",
+    "reforma_cerrajeria": "Cerrajería",
+    "compra_notaria": "Notaría (Compra)",
+    "compra_registro": "Registro (Compra)",
+    "compra_gestoria": "Gestoría (Compra)",
+    "compra_itp": "ITP",
+    "venta_comision": "Comisión Inmobiliaria",
+}
+
+
+def get_estudio_label(estudio_key: str) -> str:
+    """Get human-readable label for estudio key."""
+    return ESTUDIO_LABELS.get(estudio_key, estudio_key.replace("_", " ").title())
+
+
+def map_concept_to_estudio(concept: str) -> Optional[str]:
+    """
+    Map a document concept (e.g., 'aire acondicionado') to Estudio Económico key.
+    
+    Returns:
+        estudio_key (e.g., 'reforma_ac') or None if no match
+    """
+    concept_lower = concept.lower().strip()
+    
+    # Direct match
+    if concept_lower in CONCEPT_TO_ESTUDIO_MAP:
+        return CONCEPT_TO_ESTUDIO_MAP[concept_lower]
+    
+    # Partial match
+    for key, value in CONCEPT_TO_ESTUDIO_MAP.items():
+        if key in concept_lower or concept_lower in key:
+            return value
+    
+    return None
+
+
+def extract_document_data(
+    property_id: str,
+    document_id: str,
+    storage_path: str,
+    file_bytes: bytes = None
+) -> Dict[str, Any]:
+    """
+    Extract structured data from an invoice/factura document.
+    
+    Uses RAG/LLM to extract:
+    - concepto_detectado: What the invoice is for
+    - valor_total: Total amount
+    - proveedor: Vendor/supplier name
+    - fecha: Invoice date
+    
+    Args:
+        property_id: UUID of the property
+        document_id: UUID of the armario_document
+        storage_path: Path in Supabase storage
+        file_bytes: Optional - raw file content (if not provided, downloads from storage)
+    
+    Returns:
+        {
+            "success": bool,
+            "extracted_data": {
+                "concepto_detectado": str,
+                "valor_total": float,
+                "proveedor": str,
+                "fecha": str
+            },
+            "mapped_estudio_key": str or None,
+            "confidence": float,
+            "error": str or None
+        }
+    """
+    from .rag_tool import _extract_text
+    import openai
+    import json
+    
+    result = {
+        "success": False,
+        "extracted_data": {},
+        "mapped_estudio_key": None,
+        "confidence": 0.0,
+        "error": None
+    }
     
     try:
-        # Build context string
-        context_parts = []
-        if cajon:
-            context_parts.append(f"Cajón del armario: {cajon}")
-        if subcajon:
-            context_parts.append(f"Subcajón: {subcajon}")
+        # Download file if not provided
+        if not file_bytes:
+            from .supabase_client import BUCKET
+            file_bytes = sb.storage.from_(BUCKET).download(storage_path)
         
-        context_str = "\n".join(context_parts) if context_parts else "Sin contexto adicional"
+        if not file_bytes or len(file_bytes) == 0:
+            result["error"] = "Empty file"
+            return result
         
-        # Build the mapping prompt
-        categories_json = json.dumps(ESTUDIO_KEY_LABELS, ensure_ascii=False, indent=2)
+        # Extract text from document
+        content_type = "application/pdf" if storage_path.lower().endswith(".pdf") else "application/octet-stream"
+        text = _extract_text(file_bytes, content_type, storage_path)
+        
+        if not text or len(text) < 20:
+            result["error"] = "Could not extract text from document"
+            return result
+        
+        # Truncate text for LLM
+        text = text[:4000]
+        
+        # Use LLM to extract structured data
+        client = openai.OpenAI()
+        
+        extraction_prompt = f"""Analiza esta factura y extrae la siguiente información en formato JSON:
+
+TEXTO DE LA FACTURA:
+{text}
+
+Responde SOLO con un JSON válido con estos campos:
+{{
+    "concepto_detectado": "descripción breve del concepto principal de la factura",
+    "valor_total": número (solo el número, sin símbolo de moneda),
+    "proveedor": "nombre de la empresa o proveedor",
+    "fecha": "fecha en formato YYYY-MM-DD si está disponible, o null"
+}}
+
+Si no puedes extraer algún campo, usa null.
+"""
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": f"""Eres un experto en contabilidad de reformas inmobiliarias.
-
-Tu tarea es mapear el concepto de una factura/documento a la categoría correcta del Estudio Económico.
-
-CATEGORÍAS DISPONIBLES (key → nombre):
-{categories_json}
-
-REGLAS:
-1. Responde SIEMPRE en JSON: {{"key": "xxx", "confidence": 0.X}}
-2. "key" debe ser una de las keys exactas del diccionario
-3. "confidence" es un número entre 0.0 y 1.0:
-   - 0.9-1.0: Match muy claro (ej: "factura aire acondicionado" → reforma_ac)
-   - 0.7-0.89: Match probable (ej: "instalación clima" → reforma_ac)
-   - 0.5-0.69: Match posible pero dudoso
-   - <0.5: No hay match claro → responde {{"key": null, "confidence": 0.0}}
-
-EJEMPLOS:
-- "Factura aire acondicionado" → {{"key": "reforma_ac", "confidence": 0.95}}
-- "Instalación de splits" → {{"key": "reforma_ac", "confidence": 0.90}}
-- "Reforma integral baño" → {{"key": "reforma_banos", "confidence": 0.85}}
-- "Trabajos de fontanería" → {{"key": "reforma_contrata", "confidence": 0.70}}
-- "Documento desconocido" → {{"key": null, "confidence": 0.0}}"""
-                },
-                {
-                    "role": "user",
-                    "content": f"""Concepto de la factura: {concepto}
-
-{context_str}
-
-Responde en JSON:"""
-                }
-            ],
-            max_tokens=100,
-            temperature=0.0
+            messages=[{"role": "user", "content": extraction_prompt}],
+            temperature=0,
+            max_tokens=500
         )
         
-        content = response.choices[0].message.content.strip()
+        response_text = response.choices[0].message.content.strip()
         
         # Parse JSON response
-        if "```" in content:
-            content = content.split("```")[1].replace("json", "").strip()
+        # Remove markdown code blocks if present
+        if response_text.startswith("```"):
+            response_text = response_text.split("```")[1]
+            if response_text.startswith("json"):
+                response_text = response_text[4:]
         
-        result = json.loads(content)
-        key = result.get("key")
-        confidence = float(result.get("confidence", 0.0))
+        extracted = json.loads(response_text)
         
-        if key and key in ESTUDIO_KEY_LABELS:
-            logger.info(f"[map_concept] GPT mapped '{concepto}' → '{key}' (confidence: {confidence})")
-            return key, confidence
-        else:
-            logger.info(f"[map_concept] GPT found no match for '{concepto}'")
-            return None, 0.0
-            
+        # Validate and clean
+        valor_total = extracted.get("valor_total")
+        if isinstance(valor_total, str):
+            valor_total = _parse_price(valor_total)
+        
+        result["extracted_data"] = {
+            "concepto_detectado": extracted.get("concepto_detectado"),
+            "valor_total": valor_total,
+            "proveedor": extracted.get("proveedor"),
+            "fecha": extracted.get("fecha")
+        }
+        
+        # Map to Estudio Económico
+        concepto = extracted.get("concepto_detectado", "")
+        if concepto:
+            result["mapped_estudio_key"] = map_concept_to_estudio(concepto)
+        
+        # Calculate confidence
+        confidence = 0.5  # Base confidence
+        if valor_total and valor_total > 0:
+            confidence += 0.3
+        if result["mapped_estudio_key"]:
+            confidence += 0.2
+        result["confidence"] = min(confidence, 1.0)
+        
+        result["success"] = True
+        logger.info(f"[extract_document_data] ✅ Extracted: {result['extracted_data']}, mapped to: {result['mapped_estudio_key']}")
+        
     except json.JSONDecodeError as e:
-        logger.warning(f"[map_concept] Failed to parse GPT response: {e}")
-        return _fallback_keyword_mapping(concepto)
+        result["error"] = f"Failed to parse LLM response: {e}"
+        logger.error(f"[extract_document_data] JSON parse error: {e}")
     except Exception as e:
-        logger.warning(f"[map_concept] GPT mapping failed: {e}")
-        return _fallback_keyword_mapping(concepto)
-
-
-def _fallback_keyword_mapping(concepto: str) -> tuple[Optional[str], float]:
-    """Fallback to keyword matching if GPT is unavailable."""
-    concepto_lower = concepto.lower().strip()
+        result["error"] = str(e)
+        logger.error(f"[extract_document_data] Error: {e}")
     
-    # Sort keywords by length (longest first)
-    sorted_keywords = sorted(CONCEPT_TO_ESTUDIO_KEY.items(), key=lambda x: len(x[0]), reverse=True)
-    
-    for keyword, key in sorted_keywords:
-        if keyword in concepto_lower:
-            logger.info(f"[map_concept] Fallback mapped '{concepto}' → '{key}' (keyword: {keyword})")
-            return key, 0.7  # Lower confidence for keyword matching
-    
-    return None, 0.0
+    return result
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# DATABASE FUNCTIONS
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def save_extraction_result(
     document_id: str,
-    extraction_data: Dict,
-    mapped_key: Optional[str] = None
+    property_id: str,
+    extracted_data: Dict,
+    mapped_estudio_key: Optional[str],
+    confidence: float,
+    original_approval_id: Optional[str] = None
 ) -> Dict:
     """
-    Save extraction results to armario_documents.
+    Save extraction result to armario_documents and optionally create a pending value extraction.
     
     Args:
-        document_id: UUID of the document
-        extraction_data: The extracted data from GPT
-        mapped_key: The mapped estudio_key (optional)
+        document_id: UUID of the armario_document
+        property_id: UUID of the property
+        extracted_data: The extracted data dict
+        mapped_estudio_key: The estudio key this maps to (or None)
+        confidence: Confidence score 0-1
+        original_approval_id: UUID of the original document approval (for linking)
     
     Returns:
-        {"ok": True/False, "error": ...}
+        {"success": bool, "extraction_id": str or None, "error": str or None}
     """
     try:
+        # Update armario_documents with extraction
         update_data = {
-            "extracted_data": extraction_data,
-            "extraction_status": "pending_approval" if extraction_data.get("valor_total") else "extracted",
-            "extraction_confidence": extraction_data.get("confianza", 0),
+            "extracted_data": extracted_data,
+            "mapped_estudio_key": mapped_estudio_key,
+            "extraction_confidence": confidence,
+            "extraction_status": "pending_approval" if confidence >= 0.5 else "low_confidence",
             "extracted_at": datetime.utcnow().isoformat()
         }
         
-        if mapped_key:
-            update_data["mapped_estudio_key"] = mapped_key
-        
-        result = sb.table("armario_documents")\
+        sb.table("armario_documents")\
             .update(update_data)\
             .eq("id", document_id)\
             .execute()
         
-        if result.data:
-            logger.info(f"[save_extraction] ✅ Saved extraction for document {document_id}")
-            return {"ok": True, "data": result.data[0]}
-        else:
-            return {"ok": False, "error": "Document not found"}
-            
+        logger.info(f"[save_extraction_result] ✅ Saved extraction for document {document_id}")
+        
+        return {
+            "success": True,
+            "document_id": document_id,
+            "extraction_status": update_data["extraction_status"]
+        }
+        
     except Exception as e:
-        logger.error(f"[save_extraction] Error: {e}")
-        return {"ok": False, "error": str(e)}
+        logger.error(f"[save_extraction_result] Error: {e}")
+        return {"success": False, "error": str(e)}
 
 
-def get_pending_extractions(property_id: str) -> List[Dict]:
+def get_pending_extractions(property_id: str) -> list:
     """
-    Get all documents with pending extraction approval.
+    Get all documents with pending extraction approvals for a property.
     
-    Returns list of documents with their extracted data.
+    Returns list of documents with their extracted values waiting for user confirmation.
     """
     try:
-        result = sb.rpc('get_pending_extractions', {'p_property_id': property_id}).execute()
+        result = sb.table("armario_documents")\
+            .select("id, document_name, original_filename, cajon, subcajon, extracted_data, mapped_estudio_key, extraction_confidence, extracted_at")\
+            .eq("property_id", property_id)\
+            .eq("extraction_status", "pending_approval")\
+            .order("extracted_at", desc=True)\
+            .execute()
         
-        if result.data:
-            return result.data.get('documents', [])
-        return []
-        
+        return [
+            {
+                "document_id": doc["id"],
+                "document_name": doc["document_name"],
+                "original_filename": doc["original_filename"],
+                "cajon": doc["cajon"],
+                "subcajon": doc["subcajon"],
+                "extracted_data": doc["extracted_data"] or {},
+                "mapped_estudio_key": doc["mapped_estudio_key"],
+                "extraction_confidence": doc["extraction_confidence"],
+                "extracted_at": doc["extracted_at"]
+            }
+            for doc in result.data
+        ]
     except Exception as e:
         logger.error(f"[get_pending_extractions] Error: {e}")
         return []
 
 
-def approve_extraction(document_id: str, estudio_key: str = None) -> Dict:
+def approve_extraction(document_id: str, estudio_key: Optional[str] = None) -> Dict:
     """
-    Approve an extraction and update the Estudio Económico.
+    Approve an extraction and add the value to the Estudio Económico (Real column).
     
     Args:
-        document_id: UUID of the document
-        estudio_key: Override the mapped key (optional)
+        document_id: UUID of the armario_document
+        estudio_key: Optional override for the estudio key (if user wants different mapping)
     
     Returns:
-        {"ok": True/False, "message": ..., "valor": ...}
+        {"ok": bool, "message": str, "estudio_key": str, "valor": float, "error": str or None}
     """
     try:
-        result = sb.rpc('approve_extraction', {
-            'p_document_id': document_id,
-            'p_estudio_key': estudio_key
-        }).execute()
+        # Get document with extraction
+        doc_result = sb.table("armario_documents")\
+            .select("*")\
+            .eq("id", document_id)\
+            .single()\
+            .execute()
         
-        return result.data or {"ok": False, "error": "Unknown error"}
+        if not doc_result.data:
+            return {"ok": False, "error": "Document not found"}
+        
+        doc = doc_result.data
+        
+        if doc.get("extraction_status") != "pending_approval":
+            return {"ok": False, "error": "No pending extraction for this document"}
+        
+        extracted_data = doc.get("extracted_data") or {}
+        valor = extracted_data.get("valor_total")
+        
+        if not valor:
+            return {"ok": False, "error": "No value extracted from document"}
+        
+        # Use override key or mapped key
+        final_key = estudio_key or doc.get("mapped_estudio_key")
+        
+        if not final_key:
+            return {"ok": False, "error": "No estudio key mapped for this document"}
+        
+        property_id = doc.get("property_id")
+        
+        # Update Estudio Económico - add to Real column
+        # Get current estudio
+        estudio_result = sb.rpc("get_estudio_economico", {"p_property_id": property_id}).execute()
+        
+        if estudio_result.data and estudio_result.data.get("ok"):
+            items = estudio_result.data.get("items", [])
+            
+            # Find the matching item and update
+            for item in items:
+                if item.get("item_key") == final_key:
+                    current_real = item.get("real") or 0
+                    new_real = current_real + valor
+                    
+                    # Update via RPC
+                    sb.rpc("update_estudio_item", {
+                        "p_property_id": property_id,
+                        "p_item_key": final_key,
+                        "p_real": new_real
+                    }).execute()
+                    
+                    break
+        
+        # Update document status
+        sb.table("armario_documents")\
+            .update({
+                "extraction_status": "approved",
+                "approved_at": datetime.utcnow().isoformat()
+            })\
+            .eq("id", document_id)\
+            .execute()
+        
+        label = get_estudio_label(final_key)
+        logger.info(f"[approve_extraction] ✅ Added {valor}€ to {label} for property {property_id}")
+        
+        return {
+            "ok": True,
+            "message": f"Valor de {valor}€ añadido a {label}",
+            "estudio_key": final_key,
+            "valor": valor
+        }
         
     except Exception as e:
         logger.error(f"[approve_extraction] Error: {e}")
@@ -580,59 +657,66 @@ def approve_extraction(document_id: str, estudio_key: str = None) -> Dict:
 def reject_extraction(document_id: str) -> Dict:
     """
     Reject an extraction proposal.
+    
+    Args:
+        document_id: UUID of the armario_document
+    
+    Returns:
+        {"ok": bool, "message": str}
     """
     try:
-        result = sb.rpc('reject_extraction', {'p_document_id': document_id}).execute()
-        return result.data or {"ok": False, "error": "Unknown error"}
-    
+        sb.table("armario_documents")\
+            .update({
+                "extraction_status": "rejected",
+                "rejected_at": datetime.utcnow().isoformat()
+            })\
+            .eq("id", document_id)\
+            .execute()
+        
+        logger.info(f"[reject_extraction] Document {document_id} extraction rejected")
+        
+        return {"ok": True, "message": "Extracción rechazada"}
+        
     except Exception as e:
         logger.error(f"[reject_extraction] Error: {e}")
         return {"ok": False, "error": str(e)}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# HELPER FUNCTIONS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def get_estudio_label(key: str) -> str:
-    """Get the human-readable label for an estudio key."""
-    return ESTUDIO_KEY_LABELS.get(key, key)
-
-
-def format_extraction_proposal(extraction_data: Dict, mapped_key: str = None) -> str:
+def format_extraction_proposal(extracted_data: Dict, mapped_estudio_key: Optional[str]) -> str:
     """
-    Format an extraction for user-friendly display.
+    Format an extraction proposal for user-friendly display.
     
-    Returns a message like:
-    "📄 He analizado 'factura_clima.pdf':
-     • Concepto: Aire Acondicionado
-     • Importe: 5,000€
-     • Proveedor: Climatización SL
-     
-     ¿Lo añado al Estudio Económico como gasto REAL?"
+    Returns a markdown-formatted string proposing the extracted value.
     """
-    concepto = extraction_data.get("concepto_detectado", "Desconocido")
-    valor = extraction_data.get("valor_total")
-    proveedor = extraction_data.get("proveedor")
-    fecha = extraction_data.get("fecha_documento")
-    archivo = extraction_data.get("archivo_origen", "documento")
+    concepto = extracted_data.get("concepto_detectado", "Desconocido")
+    valor = extracted_data.get("valor_total")
+    proveedor = extracted_data.get("proveedor", "")
+    fecha = extracted_data.get("fecha", "")
     
-    msg = f"📄 He analizado **{archivo}**:\n\n"
-    msg += f"• **Concepto**: {concepto}\n"
+    valor_str = f"{valor:,.2f}€" if valor else "No detectado"
+    estudio_label = get_estudio_label(mapped_estudio_key) if mapped_estudio_key else "Sin asignar"
     
-    if valor:
-        msg += f"• **Importe**: {valor:,.0f}€\n"
+    msg = f"""📄 He analizado el documento:
+
+• **Concepto**: {concepto}
+• **Importe**: {valor_str}"""
     
     if proveedor:
-        msg += f"• **Proveedor**: {proveedor}\n"
-    
+        msg += f"\n• **Proveedor**: {proveedor}"
     if fecha:
-        msg += f"• **Fecha**: {fecha}\n"
+        msg += f"\n• **Fecha**: {fecha}"
     
-    if mapped_key:
-        label = get_estudio_label(mapped_key)
-        msg += f"\n→ Se añadiría a: **{label}** (columna Real)\n"
-    
-    msg += "\n¿Lo añado al Estudio Económico como gasto **REAL**?"
+    if mapped_estudio_key:
+        msg += f"""
+
+→ Se añadiría a: **{estudio_label}** (columna Real)
+
+¿Lo añado al Estudio Económico como gasto **REAL**?"""
+    else:
+        msg += """
+
+⚠️ No he podido mapear automáticamente este concepto al Estudio Económico.
+¿A qué partida quieres añadir este valor?"""
     
     return msg
+
