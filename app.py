@@ -4865,6 +4865,12 @@ async def approve_document(approval_id: str, request: Request):
         document_id = upload_result.get("document_id")
         storage_path = upload_result.get("storage_path")
         
+        logger.info(f"[APPROVE] 📋 Value extraction check:")
+        logger.info(f"[APPROVE]   - document_id: {document_id}")
+        logger.info(f"[APPROVE]   - storage_path: {storage_path}")
+        logger.info(f"[APPROVE]   - filename: {approval['original_filename']}")
+        logger.info(f"[APPROVE]   - is_pdf: {approval['original_filename'].lower().endswith('.pdf')}")
+        
         # Only extract if it's a PDF and we have the document ID
         if document_id and storage_path and approval["original_filename"].lower().endswith(".pdf"):
             try:
@@ -4896,16 +4902,20 @@ async def approve_document(approval_id: str, request: Request):
                         confidence=extraction_result["confidence"],
                         original_approval_id=approval_id
                     )
+                    logger.info(f"[APPROVE] 💾 Saved extraction to DB: {save_result}")
                     
                     # Send push notification for value approval
                     valor = extraction_result["extracted_data"].get("valor_total")
                     concepto = extraction_result["extracted_data"].get("concepto_detectado", "factura")
                     estudio_key = extraction_result["mapped_estudio_key"]
                     
+                    logger.info(f"[APPROVE] 📊 Notification check: valor={valor}, estudio_key={estudio_key}")
+                    
                     if valor and estudio_key:
                         estudio_label = get_estudio_label(estudio_key)
+                        logger.info(f"[APPROVE] 📤 Sending value extraction push notification...")
                         
-                        await _send_push_notification_to_all(
+                        push_result = await _send_push_notification_to_all(
                             title=f"💰 Valor detectado: {approval['property_name']}",
                             body=f"{valor:.0f}€ → {estudio_label}. Toca para aprobar.",
                             data={
@@ -4918,11 +4928,17 @@ async def approve_document(approval_id: str, request: Request):
                                 "estudio_key": estudio_key
                             }
                         )
-                        logger.info(f"[APPROVE] 🔔 Sent push notification for value extraction")
+                        logger.info(f"[APPROVE] 🔔 Push notification result: {push_result}")
+                    else:
+                        logger.warning(f"[APPROVE] ⚠️ Skipping notification: valor={valor}, estudio_key={estudio_key}")
+                else:
+                    logger.warning(f"[APPROVE] ⚠️ Extraction not successful: {extraction_result.get('error')}")
                     
             except Exception as extract_err:
-                logger.error(f"[APPROVE] ⚠️ Extraction failed (non-blocking): {extract_err}")
+                logger.error(f"[APPROVE] ⚠️ Extraction failed (non-blocking): {extract_err}", exc_info=True)
                 # Don't fail the approval, just log the error
+        else:
+            logger.warning(f"[APPROVE] ⏭️ Skipping extraction - conditions not met")
         
         return JSONResponse({
             "ok": True,
