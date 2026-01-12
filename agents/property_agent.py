@@ -19,25 +19,33 @@ from tools.registry import (
     find_property_tool,
     get_property_tool,
     update_property_fields_tool,
-    # Financial tools
-    calculate_repair_costs_tool,
-    calculate_maninos_deal_tool,
-    # Contract tools
-    generate_buy_contract_tool,
-    # Inspection tools
-    get_inspection_checklist_tool,
-    save_inspection_results_tool,
-    # Document tools (from DocsAgent)
+    # Document tools
     upload_and_link_tool,
     list_docs_tool,
     delete_document_tool,
     signed_url_for_tool,
     send_email_tool,
-    get_document_for_email_tool,  # NEW - Get document for email attachment
-    # RAG tools for MANINOS (Fase 2)
+    get_document_for_email_tool,
+    # RAG tools
     query_documents_tool,
     index_all_documents_maninos_tool,
-    get_extracted_values_tool,  # Auto-extracted values from documents
+    # Estudio Económico tools
+    update_estudio_economico_tool,
+    get_estudio_economico_tool,
+    # Armario Digital tools
+    search_armario_documents_tool,
+    send_armario_document_email_tool,
+    list_armario_tool,
+    get_armario_summary_tool,
+    query_armario_document_tool,
+    # Extraction tools (value approval flow)
+    get_pending_extractions_tool,
+    approve_extraction_tool,
+    reject_extraction_tool,
+    format_extraction_proposal_tool,
+    # Photo tools
+    search_property_photos_tool,
+    send_photos_by_email_tool,
 )
 
 
@@ -288,33 +296,30 @@ class PropertyAgent(BaseAgent):
         return result
     
     def get_tools(self) -> List:
-        """Return all acquisition tools (property + documents + inspection + contract)."""
+        """Return all property management tools."""
         return [
             # Property management
-            add_property_tool,
             set_current_property_tool,
             list_properties_tool,
             delete_property_tool,
             find_property_tool,
             get_property_tool,
             update_property_fields_tool,
-            # Financial calculations
-            calculate_repair_costs_tool,
-            calculate_maninos_deal_tool,
-            # Inspection
-            get_inspection_checklist_tool,
-            save_inspection_results_tool,
-            # Contract
-            generate_buy_contract_tool,
-            # Documents (Paso 0)
-            upload_and_link_tool,
-            list_docs_tool,
-            delete_document_tool,
-            signed_url_for_tool,
-            send_email_tool,
-            get_document_for_email_tool,  # NEW - Get document for email
-            # RAG Tools (Fase 2 - MANINOS AI)
-            query_documents_tool,  # Query documents using RAG
-            index_all_documents_maninos_tool,  # Re-index documents
-            get_extracted_values_tool,  # Get auto-extracted values
+            # Estudio Económico
+            update_estudio_economico_tool,
+            get_estudio_economico_tool,
+            # Armario Digital
+            search_armario_documents_tool,
+            send_armario_document_email_tool,
+            list_armario_tool,
+            get_armario_summary_tool,
+            query_armario_document_tool,
+            # Extraction approvals
+            get_pending_extractions_tool,
+            approve_extraction_tool,
+            reject_extraction_tool,
+            format_extraction_proposal_tool,
+            # Photos
+            search_property_photos_tool,
+            send_photos_by_email_tool,
         ]
