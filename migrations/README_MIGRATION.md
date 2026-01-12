@@ -161,3 +161,4 @@ Si aún tienes problemas:
 **Última Actualización:** 2025-12-19  
 **Versión del Script:** 2.0 (SAFE)
 
+

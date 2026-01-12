@@ -5083,8 +5083,11 @@ async def subscribe_push(request: Request):
     import logging
     logger = logging.getLogger(__name__)
     
+    logger.info("[PUSH SUBSCRIBE] ========== SUBSCRIPTION REQUEST ==========")
+    
     try:
         body = await request.json()
+        logger.info(f"[PUSH SUBSCRIBE] Body keys: {body.keys()}")
         
         user_identifier = body.get("user_identifier", "default_user")
         subscription = body.get("subscription", {})
@@ -5094,11 +5097,16 @@ async def subscribe_push(request: Request):
         p256dh = keys.get("p256dh")
         auth = keys.get("auth")
         
+        logger.info(f"[PUSH SUBSCRIBE] User: {user_identifier}")
+        logger.info(f"[PUSH SUBSCRIBE] Endpoint: {endpoint[:50] if endpoint else 'None'}...")
+        logger.info(f"[PUSH SUBSCRIBE] Has p256dh: {bool(p256dh)}, Has auth: {bool(auth)}")
+        
         if not endpoint or not p256dh or not auth:
+            logger.error("[PUSH SUBSCRIBE] ❌ Invalid subscription data")
             return JSONResponse({"ok": False, "error": "Invalid subscription data"}, status_code=400)
         
         # Upsert subscription
-        sb.table("push_subscriptions").upsert({
+        result = sb.table("push_subscriptions").upsert({
             "user_identifier": user_identifier,
             "endpoint": endpoint,
             "p256dh": p256dh,
@@ -5106,12 +5114,19 @@ async def subscribe_push(request: Request):
             "last_used_at": "now()"
         }, on_conflict="endpoint").execute()
         
-        logger.info(f"[PUSH] Subscription saved for {user_identifier}")
+        logger.info(f"[PUSH SUBSCRIBE] ✅ Subscription saved for {user_identifier}")
+        logger.info(f"[PUSH SUBSCRIBE] DB result: {result.data}")
+        
+        # Verify count
+        count_result = sb.table("push_subscriptions").select("*", count="exact").execute()
+        logger.info(f"[PUSH SUBSCRIBE] Total subscriptions in DB: {count_result.count}")
         
         return JSONResponse({"ok": True, "message": "Subscribed to push notifications"})
         
     except Exception as e:
-        logger.error(f"[API] Error subscribing to push: {e}")
+        logger.error(f"[PUSH SUBSCRIBE] ❌ Error: {e}")
+        import traceback
+        logger.error(f"[PUSH SUBSCRIBE] Traceback: {traceback.format_exc()}")
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
@@ -5142,11 +5157,18 @@ async def unsubscribe_push(request: Request):
 @app.get("/api/push/vapid-public-key")
 async def get_vapid_public_key():
     """Get the VAPID public key for Web Push subscription."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info("[VAPID] Request for VAPID public key")
+    
     vapid_public_key = os.getenv("VAPID_PUBLIC_KEY")
     
     if not vapid_public_key:
+        logger.error("[VAPID] ❌ VAPID_PUBLIC_KEY not configured!")
         return JSONResponse({"ok": False, "error": "VAPID not configured"}, status_code=500)
     
+    logger.info(f"[VAPID] ✅ Returning key: {vapid_public_key[:20]}...")
     return JSONResponse({"ok": True, "publicKey": vapid_public_key})
 
 

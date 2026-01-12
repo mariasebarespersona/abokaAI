@@ -22,7 +22,8 @@ import {
   isPushSupported, 
   getNotificationPermission, 
   subscribeToPush, 
-  isSubscribedToPush 
+  isSubscribedToPush,
+  resyncSubscription
 } from '@/lib/pushNotifications';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -151,7 +152,7 @@ export function MobileApprovalsView({ onSwitchToDesktop, onApprovalProcessed }: 
     }
   }, [BACKEND_URL]);
 
-  // Check push notification status
+  // Check push notification status and resync with backend
   const checkPushStatus = useCallback(async () => {
     const supported = isPushSupported();
     setPushSupported(supported);
@@ -159,6 +160,13 @@ export function MobileApprovalsView({ onSwitchToDesktop, onApprovalProcessed }: 
     if (supported) {
       const subscribed = await isSubscribedToPush();
       setIsSubscribed(subscribed);
+      
+      // If locally subscribed, ensure backend knows about it
+      if (subscribed) {
+        console.log('[Mobile] Re-syncing push subscription with backend...');
+        const resynced = await resyncSubscription();
+        console.log('[Mobile] Resync result:', resynced);
+      }
     }
   }, []);
 
@@ -182,10 +190,16 @@ export function MobileApprovalsView({ onSwitchToDesktop, onApprovalProcessed }: 
   // Enable push notifications
   const handleEnablePush = async () => {
     setSubscribing(true);
-    const success = await subscribeToPush();
-    if (success) {
+    setError(null);
+    
+    const result = await subscribeToPush();
+    
+    if (result.success) {
       setIsSubscribed(true);
+    } else {
+      setError(`Error: ${result.error}`);
     }
+    
     setSubscribing(false);
   };
 

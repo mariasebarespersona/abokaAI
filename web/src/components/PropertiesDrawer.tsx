@@ -1,13 +1,13 @@
 'use client'
 
 import React, { useState } from 'react'
-import { X, Home, Building2, Plus, Trash2, Pencil } from 'lucide-react'
-import { HomeProperty, STAGE_CONFIG } from '@/types/maninos'
+import { X, Home, Building2, Plus, Trash2 } from 'lucide-react'
+import { MobileHomeProperty, STAGE_CONFIG } from '@/types/maninos'
 
 interface PropertiesDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  properties: HomeProperty[];
+  properties: MobileHomeProperty[];
   onSelectProperty: (propertyId: string) => void;
   currentPropertyId: string | null;
   onNewProperty: () => void;
@@ -25,57 +25,10 @@ export function PropertiesDrawer({
 }: PropertiesDrawerProps) {
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [editingProperty, setEditingProperty] = useState<{ id: string; name: string; address: string } | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState('');
-  const [editAddress, setEditAddress] = useState('');
 
-  const handleDeleteClick = (e: React.MouseEvent, property: HomeProperty) => {
+  const handleDeleteClick = (e: React.MouseEvent, property: MobileHomeProperty) => {
     e.stopPropagation(); // Prevent selecting the property
     setDeleteConfirm({ id: property.id, name: property.name || 'Unnamed Property' });
-  };
-
-  const handleEditClick = (e: React.MouseEvent, property: HomeProperty) => {
-    e.stopPropagation(); // Prevent selecting the property
-    setEditingProperty({ 
-      id: property.id, 
-      name: property.name || '', 
-      address: property.address || '' 
-    });
-    setEditName(property.name || '');
-    setEditAddress(property.address || '');
-  };
-
-  const handleEditConfirm = async () => {
-    if (!editingProperty) return;
-    
-    setIsEditing(true);
-    try {
-      const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080';
-      const response = await fetch(`${BACKEND_URL}/api/property/${editingProperty.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editName.trim(),
-          address: editAddress.trim()
-        })
-      });
-      
-      const result = await response.json();
-      
-      if (result.ok) {
-        // Success - refresh properties list
-        onPropertyDeleted(); // Reuse callback to refresh
-        setEditingProperty(null);
-      } else {
-        alert(`Error: ${result.error || 'Failed to update property'}`);
-      }
-    } catch (error) {
-      console.error('Error updating property:', error);
-      alert('Error updating property. Please try again.');
-    } finally {
-      setIsEditing(false);
-    }
   };
 
   const handleDeleteConfirm = async () => {
@@ -138,23 +91,14 @@ export function PropertiesDrawer({
                             : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-md'
                         }`}
                     >
-                        {/* Action buttons - positioned at bottom right to avoid overlap with stage badge */}
-                        <div className="absolute bottom-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 z-10 bg-white/90 rounded-lg p-0.5">
-                          <button
-                              onClick={(e) => handleEditClick(e, prop)}
-                              className="p-1.5 rounded-lg hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition-colors"
-                              title="Editar propiedad"
-                          >
-                              <Pencil size={14} />
-                          </button>
-                          <button
-                              onClick={(e) => handleDeleteClick(e, prop)}
-                              className="p-1.5 rounded-lg hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors"
-                              title="Eliminar propiedad"
-                          >
-                              <Trash2 size={14} />
-                          </button>
-                        </div>
+                        {/* Delete button - positioned absolutely to avoid button nesting */}
+                        <button
+                            onClick={(e) => handleDeleteClick(e, prop)}
+                            className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100 z-10"
+                            title="Delete property"
+                        >
+                            <Trash2 size={14} />
+                        </button>
 
                         {/* Main content button */}
                         <button
@@ -168,7 +112,7 @@ export function PropertiesDrawer({
                                 <div className={`p-2 rounded-lg ${isActive ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
                                     <Home size={18} />
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 pr-8">
                                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider ${
                                         prop.acquisition_stage === 'rejected'
                                             ? 'bg-red-600 text-white'
@@ -268,80 +212,6 @@ export function PropertiesDrawer({
                   <>
                     <Trash2 size={16} />
                     Delete
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Property Modal */}
-      {editingProperty && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setEditingProperty(null)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in zoom-in-95 duration-200">
-            <div className="flex items-start gap-4 mb-6">
-              <div className="p-3 rounded-full bg-blue-100">
-                <Pencil className="text-blue-600" size={24} />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-bold text-lg text-slate-800 mb-1">Editar Propiedad</h3>
-                <p className="text-sm text-slate-600">
-                  Modifica el nombre y/o dirección de la propiedad.
-                </p>
-              </div>
-            </div>
-            
-            <div className="space-y-4 mb-6">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Nombre de la propiedad
-                </label>
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  placeholder="Ej: Casa Sanchez"
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Dirección
-                </label>
-                <input
-                  type="text"
-                  value={editAddress}
-                  onChange={(e) => setEditAddress(e.target.value)}
-                  placeholder="Ej: Calle Mayor 15"
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setEditingProperty(null)}
-                disabled={isEditing}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleEditConfirm}
-                disabled={isEditing || (!editName.trim() && !editAddress.trim())}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {isEditing ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Guardando...
-                  </>
-                ) : (
-                  <>
-                    <Pencil size={16} />
-                    Guardar
                   </>
                 )}
               </button>

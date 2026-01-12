@@ -159,27 +159,14 @@ def _get_main_agent_modules(intent: str) -> list[str]:
 
 def _get_property_agent_modules(intent: str) -> list[str]:
     """
-    Map property_agent intents to prompt modules (ABOKA AI).
+    Map property_agent intents to prompt modules (MANINOS AI).
     
     Returns list of module names to load (without .md extension).
     """
-    # Intent mappings for property_agent
+    # Intent mappings for property_agent (acquisition flow)
     intent_map = {
-        # Estudio Económico (financial values) - PRIORITY
-        "estudio": ["estudio_economico"],
-        "estudio.update": ["estudio_economico"],
-        "estudio.set": ["estudio_economico"],
-        "financiero": ["estudio_economico"],
-        "financiero.set": ["estudio_economico"],
-        "numbers": ["estudio_economico"],
-        "numbers.set": ["estudio_economico"],
-        "numbers.update": ["estudio_economico"],
-        "precio": ["estudio_economico"],
-        "coste": ["estudio_economico"],
-        "gasto": ["estudio_economico"],
-        
-        # Acquisition flow steps (legacy MANINOS)
-        "property.acquisition": ["examples"],
+        # Acquisition flow steps
+        "property.acquisition": ["examples"],  # General acquisition - show examples
         "property.70_check": ["step1_initial", "examples"],
         "property.initial": ["step1_initial"],
         "property.inspection": ["step2_inspection"],
@@ -206,22 +193,8 @@ def _get_property_agent_modules(intent: str) -> list[str]:
         if intent.startswith(pattern):
             return modules
     
-    # Detect financial/estudio keywords in intent
-    financial_keywords = [
-        "precio", "coste", "gasto", "reforma", "compra", "venta", 
-        "itp", "notaria", "hipoteca", "presupuesto", "euro", "€",
-        "estimado", "real", "valor", "importe", "dinero", "pago",
-        # Document extraction keywords
-        "factura", "ticket", "recibo", "extraccion", "pendiente",
-        "aprobar", "rechazar", "documento", "extraido"
-    ]
-    intent_lower = intent.lower()
-    for kw in financial_keywords:
-        if kw in intent_lower:
-            return ["estudio_economico"]
-    
     # Fallback: if contains "acquisition", load examples
-    if "acquisition" in intent_lower:
+    if "acquisition" in intent.lower():
         return ["examples"]
     
     # No match, return empty (base only)
