@@ -72,72 +72,103 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 /**
+ * Helper to add timeout to promises
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => 
+      setTimeout(() => reject(new Error(errorMsg)), ms)
+    )
+  ]);
+}
+
+/**
  * Subscribe to push notifications
  */
-export async function subscribeToPush(userIdentifier: string = 'default_user'): Promise<{ success: boolean; error?: string }> {
+export async function subscribeToPush(userIdentifier: string = 'default_user'): Promise<{ success: boolean; error?: string; step?: string }> {
   console.log('[Push] subscribeToPush called');
   
   if (!isPushSupported()) {
     console.warn('[Push] Not supported in this browser');
-    return { success: false, error: 'Push no soportado en este navegador' };
+    return { success: false, error: 'Push no soportado en este navegador', step: 'support-check' };
   }
   
   try {
-    // Request permission first
-    console.log('[Push] Requesting permission...');
-    const permission = await requestNotificationPermission();
+    // Step 1: Request permission
+    console.log('[Push] Step 1: Requesting permission...');
+    const permission = await withTimeout(
+      requestNotificationPermission(),
+      10000,
+      'Timeout: El diálogo de permisos no apareció. Ve a Ajustes > Aboka > Notificaciones y actívalas manualmente.'
+    );
     console.log('[Push] Permission result:', permission);
     
     if (permission !== 'granted') {
       console.warn('[Push] Permission denied');
-      return { success: false, error: 'Permiso denegado. Activa las notificaciones en Ajustes del iPhone.' };
+      return { success: false, error: 'Permiso denegado. Ve a Ajustes > Aboka > Notificaciones.', step: 'permission' };
     }
     
-    // Get service worker registration
-    console.log('[Push] Getting service worker...');
-    const registration = await navigator.serviceWorker.ready;
+    // Step 2: Get service worker
+    console.log('[Push] Step 2: Getting service worker...');
+    const registration = await withTimeout(
+      navigator.serviceWorker.ready,
+      10000,
+      'Timeout: Service Worker no está listo. Intenta recargar la app.'
+    );
     console.log('[Push] Service worker ready');
     
-    // Get VAPID public key
-    console.log('[Push] Fetching VAPID key from:', `${BACKEND_URL}/api/push/vapid-public-key`);
-    const vapidPublicKey = await getVapidPublicKey();
+    // Step 3: Get VAPID key from backend
+    console.log('[Push] Step 3: Fetching VAPID key...');
+    const vapidPublicKey = await withTimeout(
+      getVapidPublicKey(),
+      10000,
+      'Timeout: No se pudo conectar al servidor. Verifica tu conexión.'
+    );
     console.log('[Push] Got VAPID key:', vapidPublicKey.substring(0, 20) + '...');
     
-    // Subscribe to push
-    console.log('[Push] Subscribing to PushManager...');
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
-    });
-    console.log('[Push] PushManager subscription created:', subscription.endpoint.substring(0, 50) + '...');
+    // Step 4: Subscribe to PushManager
+    console.log('[Push] Step 4: Subscribing to PushManager...');
+    const subscription = await withTimeout(
+      registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+      }),
+      15000,
+      'Timeout: PushManager no respondió. Este navegador puede no soportar push notifications.'
+    );
+    console.log('[Push] PushManager subscription created');
     
-    // Send subscription to backend
-    console.log('[Push] Sending subscription to backend...');
-    const response = await fetch(`${BACKEND_URL}/api/push/subscribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_identifier: userIdentifier,
-        subscription: subscription.toJSON()
-      })
-    });
+    // Step 5: Send to backend
+    console.log('[Push] Step 5: Sending to backend...');
+    const response = await withTimeout(
+      fetch(`${BACKEND_URL}/api/push/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_identifier: userIdentifier,
+          subscription: subscription.toJSON()
+        })
+      }),
+      10000,
+      'Timeout: El servidor no respondió. Intenta de nuevo.'
+    );
     
     console.log('[Push] Backend response status:', response.status);
     const data = await response.json();
     console.log('[Push] Backend response:', data);
     
     if (data.ok) {
-      console.log('[Push] ✅ Successfully subscribed to backend!');
-      return { success: true };
+      console.log('[Push] ✅ Successfully subscribed!');
+      return { success: true, step: 'complete' };
     } else {
-      console.error('[Push] Backend rejected subscription:', data.error);
-      return { success: false, error: data.error || 'Error del servidor' };
+      return { success: false, error: data.error || 'Error del servidor', step: 'backend' };
     }
     
   } catch (error) {
-    console.error('[Push] Error subscribing:', error);
+    console.error('[Push] Error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-    return { success: false, error: errorMessage };
+    return { success: false, error: errorMessage, step: 'unknown' };
   }
 }
 
