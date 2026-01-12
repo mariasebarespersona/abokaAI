@@ -633,8 +633,7 @@ def approve_extraction(document_id: str, estudio_key: Optional[str] = None) -> D
         # Update document status
         sb.table("armario_documents")\
             .update({
-                "extraction_status": "approved",
-                "approved_at": datetime.utcnow().isoformat()
+                "extraction_status": "approved"
             })\
             .eq("id", document_id)\
             .execute()
@@ -667,8 +666,7 @@ def reject_extraction(document_id: str) -> Dict:
     try:
         sb.table("armario_documents")\
             .update({
-                "extraction_status": "rejected",
-                "rejected_at": datetime.utcnow().isoformat()
+                "extraction_status": "rejected"
             })\
             .eq("id", document_id)\
             .execute()
