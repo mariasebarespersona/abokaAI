@@ -107,7 +107,7 @@ export function InteractiveChecklist({ propertyId, onUpdate }: InteractiveCheckl
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>MANINOS AI - Inspection Report</title>
+    <title>ABOKA AI - Inspection Report</title>
     <style>
         @media print {
             body { margin: 0; }

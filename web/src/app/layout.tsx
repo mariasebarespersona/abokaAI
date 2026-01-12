@@ -17,8 +17,8 @@ const lora = Lora({
 })
 
 export const metadata: Metadata = {
-  title: 'MANINOS AI',
-  description: 'Asistente inteligente para adquisición de Mobile Homes.',
+  title: 'ABOKA AI',
+  description: 'Asistente inteligente para gestión de reformas inmobiliarias.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -33,11 +33,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {/* Brand Identity */}
             <div className="flex items-center gap-3 group cursor-pointer">
               <div className="flex h-8 w-8 items-center justify-center rounded bg-[color:var(--brand-900)] text-white shadow-sm font-bold text-lg">
-                 M
+                 A
               </div>
               <div className="flex flex-col justify-center">
                 <h1 className="font-sans text-xl font-bold leading-none tracking-tight text-[color:var(--text-primary)]">
-                  MANINOS
+                  ABOKA
                 </h1>
                 <span className="text-[10px] font-medium uppercase tracking-widest text-[color:var(--text-secondary)] opacity-80 group-hover:opacity-100 transition-opacity">
                   AI Assistant
@@ -66,7 +66,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         <footer className="mt-auto py-6 text-center">
           <p className="font-sans text-xs text-[color:var(--text-tertiary)]">
-            Powered by Maninos AI
+            Powered by ABOKA AI
           </p>
         </footer>
       </body>
