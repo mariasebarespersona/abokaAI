@@ -374,11 +374,45 @@ export function MobileApprovalsView({ onSwitchToDesktop, onApprovalProcessed }: 
         </div>
       )}
 
-      {/* Success banner when subscribed */}
+      {/* Success banner when subscribed - with re-sync option */}
       {isSubscribed && (
-        <div className="mx-4 mt-4 p-3 bg-emerald-500/20 border border-emerald-500/30 rounded-xl flex items-center gap-2 text-emerald-400">
-          <Bell size={16} />
-          <span className="text-sm">Notificaciones activadas</span>
+        <div className="mx-4 mt-4 p-3 bg-emerald-500/20 border border-emerald-500/30 rounded-xl">
+          <div className="flex items-center gap-2 text-emerald-400">
+            <Bell size={16} />
+            <span className="text-sm flex-1">Notificaciones activadas</span>
+            <button
+              onClick={async () => {
+                setSubscribing(true);
+                setError(null);
+                try {
+                  // Force re-subscribe to ensure backend has the subscription
+                  const result = await subscribeToPush();
+                  if (result.success) {
+                    setError(null);
+                    // Show success temporarily
+                    const el = document.getElementById('sync-status');
+                    if (el) {
+                      el.textContent = '✓ Sincronizado';
+                      el.className = 'text-xs text-emerald-400';
+                      setTimeout(() => {
+                        el.textContent = '';
+                      }, 3000);
+                    }
+                  } else {
+                    setError(`Sync error: ${result.error}`);
+                  }
+                } catch (e) {
+                  setError(`Error: ${e}`);
+                }
+                setSubscribing(false);
+              }}
+              disabled={subscribing}
+              className="px-2 py-1 bg-emerald-600 text-white text-xs rounded"
+            >
+              {subscribing ? '...' : 'Re-sync'}
+            </button>
+          </div>
+          <span id="sync-status" className="text-xs"></span>
         </div>
       )}
 
