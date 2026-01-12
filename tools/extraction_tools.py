@@ -255,93 +255,157 @@ def clear_extracted_field(property_id: str, field: str) -> bool:
 # INVOICE EXTRACTION TOOLS - For Armario Digital / Estudio Económico
 # ============================================================================
 
-# Mapping from document concepts to item_name patterns (for matching in financial_items)
-# The value is the search pattern to find in item_name
-CONCEPT_TO_ESTUDIO_MAP = {
-    # Reforma items - map to item_name patterns
-    "aire acondicionado": "Aire Acondicionado",
-    "clima": "Aire Acondicionado",
-    "climatización": "Aire Acondicionado",
-    "fontanería": "Fontanería",
-    "fontanero": "Fontanería",
-    "electricidad": "Electricidad",
-    "electricista": "Electricidad",
-    "albañilería": "Albañilería",
-    "albañil": "Albañilería",
-    "obra": "Contrata de Obra",
-    "pintura": "Pintura",
-    "pintor": "Pintura",
-    "cocina": "Cocina",
-    "muebles cocina": "Mobiliario Cocina",
-    "electrodomésticos": "Mobiliario Cocina",
-    "baño": "Baños",
-    "sanitarios": "Baños",
-    "suelo": "Suelos",
-    "suelos": "Suelos",
-    "parquet": "Suelos",
-    "ventanas": "Ventanas",
-    "carpintería": "Carpintería",
-    "puertas": "Puertas",
-    "cerrajería": "Cerrajería",
-    # Compra items
-    "notaría": "Notaría",
-    "notario": "Notaría",
-    "registro": "Registro",
-    "gestoría": "Gestoría",
-    "gestor": "Gestoría",
-    "itp": "ITP",
-    "impuesto transmisiones": "ITP",
-    # Venta items
-    "inmobiliaria": "Comisión Agencia",
-    "comisión venta": "Comisión Agencia",
-    "agencia": "Comisión Agencia",
-}
 
-# Human-readable labels (same as mapped values now)
-ESTUDIO_LABELS = {
-    "Aire Acondicionado": "Aire Acondicionado",
-    "Fontanería": "Fontanería",
-    "Electricidad": "Electricidad",
-    "Albañilería": "Albañilería",
-    "Pintura": "Pintura",
-    "Cocina": "Cocina",
-    "Mobiliario Cocina": "Mobiliario Cocina",
-    "Baños": "Baños",
-    "Suelos": "Suelos",
-    "Ventanas": "Ventanas",
-    "Carpintería": "Carpintería",
-    "Puertas": "Puertas",
-    "Cerrajería": "Cerrajería",
-    "Contrata de Obra": "Contrata de Obra",
-    "Notaría": "Notaría",
-    "Registro": "Registro",
-    "Gestoría": "Gestoría",
-    "ITP": "ITP",
-    "Comisión Agencia": "Comisión Agencia",
-}
+def get_estudio_categories(property_id: str) -> list[str]:
+    """
+    Get all available Estudio Económico categories (item_name) for a property.
+    
+    Returns list of item_name values from financial_items table.
+    """
+    try:
+        result = sb.table("financial_items")\
+            .select("item_name")\
+            .eq("property_id", property_id)\
+            .execute()
+        
+        if result.data:
+            return [item["item_name"] for item in result.data]
+        return []
+    except Exception as e:
+        logger.error(f"[get_estudio_categories] Error: {e}")
+        return []
 
 
 def get_estudio_label(estudio_key: str) -> str:
     """Get human-readable label for estudio key."""
-    return ESTUDIO_LABELS.get(estudio_key, estudio_key.replace("_", " ").title())
+    return estudio_key  # Now we use item_name directly, which is already human-readable
 
 
-def map_concept_to_estudio(concept: str) -> Optional[str]:
+def map_concept_to_estudio_llm(concept: str, property_id: str) -> Optional[str]:
     """
-    Map a document concept (e.g., 'aire acondicionado') to Estudio Económico key.
+    Use LLM to intelligently map a document concept to the correct Estudio Económico category.
+    
+    This fetches the REAL categories from the database and asks the LLM to pick the best match.
+    
+    Args:
+        concept: The extracted concept from the invoice (e.g., "instalación de armarios empotrados")
+        property_id: UUID of the property (to get its specific categories)
     
     Returns:
-        estudio_key (e.g., 'reforma_ac') or None if no match
+        The exact item_name from financial_items, or None if no good match
     """
+    import openai
+    import json
+    
+    # Get actual categories from database
+    categories = get_estudio_categories(property_id)
+    
+    if not categories:
+        logger.warning(f"[map_concept_to_estudio_llm] No categories found for property {property_id}")
+        return None
+    
+    # Build prompt
+    categories_list = "\n".join([f"- {cat}" for cat in categories])
+    
+    prompt = f"""Eres un experto en clasificación de facturas de reformas inmobiliarias.
+
+CONCEPTO DE LA FACTURA:
+"{concept}"
+
+CATEGORÍAS DISPONIBLES EN EL EXCEL:
+{categories_list}
+
+Tu tarea: Selecciona la categoría MÁS APROPIADA para clasificar esta factura.
+
+Reglas:
+1. Responde SOLO con el nombre EXACTO de la categoría (copia y pega)
+2. Si el concepto menciona armarios, vestidores, carpintería a medida → busca categoría con "Armarios" o "Carpintería"
+3. Si el concepto menciona cocina, muebles de cocina, electrodomésticos → busca categoría con "Cocina"
+4. Si el concepto menciona baños, sanitarios, griferías → busca categoría con "Baño" o "Sanitarios"
+5. Si no hay ninguna categoría que encaje bien, responde: NULL
+
+Respuesta (solo el nombre de la categoría o NULL):"""
+
+    try:
+        client = openai.OpenAI()
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=100
+        )
+        
+        answer = response.choices[0].message.content.strip()
+        
+        # Check if it's a valid category
+        if answer.upper() == "NULL" or answer == "":
+            logger.info(f"[map_concept_to_estudio_llm] LLM returned NULL for concept: {concept}")
+            return None
+        
+        # Verify it's in our categories (exact or case-insensitive match)
+        for cat in categories:
+            if cat.lower() == answer.lower() or cat == answer:
+                logger.info(f"[map_concept_to_estudio_llm] Mapped '{concept}' → '{cat}'")
+                return cat
+        
+        # Try partial match as fallback
+        for cat in categories:
+            if answer.lower() in cat.lower() or cat.lower() in answer.lower():
+                logger.info(f"[map_concept_to_estudio_llm] Partial match '{concept}' → '{cat}'")
+                return cat
+        
+        logger.warning(f"[map_concept_to_estudio_llm] LLM returned '{answer}' which is not in categories")
+        return None
+        
+    except Exception as e:
+        logger.error(f"[map_concept_to_estudio_llm] Error: {e}")
+        return None
+
+
+def map_concept_to_estudio(concept: str, property_id: str = None) -> Optional[str]:
+    """
+    Map a document concept to Estudio Económico category.
+    
+    If property_id is provided, uses LLM for intelligent mapping.
+    Otherwise falls back to simple keyword matching.
+    
+    Args:
+        concept: The concept extracted from the invoice
+        property_id: Optional - UUID of the property for LLM-based mapping
+    
+    Returns:
+        item_name string or None if no match
+    """
+    if property_id:
+        # Use intelligent LLM-based mapping
+        return map_concept_to_estudio_llm(concept, property_id)
+    
+    # Fallback: simple keyword matching for backwards compatibility
+    KEYWORD_MAP = {
+        "aire acondicionado": "Aire Acondicionado",
+        "clima": "Aire Acondicionado", 
+        "climatización": "Aire Acondicionado",
+        "armario": "Armarios y Carpintería",
+        "carpintería": "Armarios y Carpintería",
+        "vestidor": "Armarios y Carpintería",
+        "fontanería": "Fontanería",
+        "electricidad": "Electricidad",
+        "albañilería": "Albañilería",
+        "obra": "Contrata de Obra",
+        "pintura": "Pintura",
+        "cocina": "Mobiliario Cocina + Electros",
+        "electrodomésticos": "Mobiliario Cocina + Electros",
+        "baño": "Sanitarios Baños + Griferías",
+        "sanitarios": "Sanitarios Baños + Griferías",
+        "suelo": "Tarima / Suelos",
+        "tarima": "Tarima / Suelos",
+        "parquet": "Tarima / Suelos",
+    }
+    
     concept_lower = concept.lower().strip()
     
-    # Direct match
-    if concept_lower in CONCEPT_TO_ESTUDIO_MAP:
-        return CONCEPT_TO_ESTUDIO_MAP[concept_lower]
-    
-    # Partial match
-    for key, value in CONCEPT_TO_ESTUDIO_MAP.items():
-        if key in concept_lower or concept_lower in key:
+    for key, value in KEYWORD_MAP.items():
+        if key in concept_lower:
             return value
     
     return None
@@ -464,10 +528,11 @@ Si no puedes extraer algún campo, usa null.
             "fecha": extracted.get("fecha")
         }
         
-        # Map to Estudio Económico
+        # Map to Estudio Económico using LLM for intelligent matching
         concepto = extracted.get("concepto_detectado", "")
         if concepto:
-            result["mapped_estudio_key"] = map_concept_to_estudio(concepto)
+            result["mapped_estudio_key"] = map_concept_to_estudio(concepto, property_id)
+            logger.info(f"[extract_document_data] 🎯 Concept '{concepto}' mapped to: {result['mapped_estudio_key']}")
         
         # Calculate confidence
         confidence = 0.5  # Base confidence
