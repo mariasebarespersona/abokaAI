@@ -6,6 +6,8 @@ import { MobileHomeProperty } from '@/types/maninos'
 import { Bot, Menu, Building2 } from 'lucide-react'
 import { ChatPanel } from '@/components/ChatPanel'
 import { AbokaExcel } from '@/components/aboka/AbokaExcel'
+import { MobileApprovalsView } from '@/components/aboka/MobileApprovalsView'
+import { useIsMobile, useIsPWA } from '@/hooks/useIsMobile'
 
 // We need to fetch properties to pass to the Drawer
 
@@ -15,6 +17,15 @@ export default function AbokaWorkspace() {
   
   // Global Selection State
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null)
+  
+  // Mobile detection
+  const isMobile = useIsMobile()
+  const isPWA = useIsPWA()
+  const [forceMobileView, setForceMobileView] = useState(false)
+  const [forceDesktopView, setForceDesktopView] = useState(false)
+  
+  // Show mobile view if: mobile device OR PWA installed (unless forced to desktop)
+  const showMobileView = (isMobile || isPWA || forceMobileView) && !forceDesktopView
   
   // Load initial state
   useEffect(() => {
@@ -48,6 +59,19 @@ export default function AbokaWorkspace() {
   const handleNewEvaluation = () => {
     setSelectedPropertyId(null)
     localStorage.removeItem('maninos_property_id')
+  }
+
+  // If mobile view, show simplified approvals view
+  if (showMobileView) {
+    return (
+      <MobileApprovalsView 
+        onSwitchToDesktop={() => setForceDesktopView(true)}
+        onApprovalProcessed={() => {
+          // Refresh properties list when an approval is processed
+          fetchPropertiesList()
+        }}
+      />
+    )
   }
 
   return (
