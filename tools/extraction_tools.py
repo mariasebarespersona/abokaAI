@@ -255,63 +255,69 @@ def clear_extracted_field(property_id: str, field: str) -> bool:
 # INVOICE EXTRACTION TOOLS - For Armario Digital / Estudio Económico
 # ============================================================================
 
-# Mapping from document concepts to Estudio Económico keys
+# Mapping from document concepts to item_name patterns (for matching in financial_items)
+# The value is the search pattern to find in item_name
 CONCEPT_TO_ESTUDIO_MAP = {
-    # Reforma items
-    "aire acondicionado": "reforma_ac",
-    "clima": "reforma_ac",
-    "climatización": "reforma_ac",
-    "fontanería": "reforma_fontaneria",
-    "fontanero": "reforma_fontaneria",
-    "electricidad": "reforma_electricidad",
-    "electricista": "reforma_electricidad",
-    "albañilería": "reforma_albanileria",
-    "albañil": "reforma_albanileria",
-    "obra": "reforma_albanileria",
-    "pintura": "reforma_pintura",
-    "pintor": "reforma_pintura",
-    "cocina": "reforma_cocina",
-    "muebles cocina": "reforma_cocina",
-    "baño": "reforma_bano",
-    "sanitarios": "reforma_bano",
-    "suelo": "reforma_suelos",
-    "suelos": "reforma_suelos",
-    "parquet": "reforma_suelos",
-    "ventanas": "reforma_ventanas",
-    "carpintería": "reforma_carpinteria",
-    "puertas": "reforma_carpinteria",
-    "cerrajería": "reforma_cerrajeria",
+    # Reforma items - map to item_name patterns
+    "aire acondicionado": "Aire Acondicionado",
+    "clima": "Aire Acondicionado",
+    "climatización": "Aire Acondicionado",
+    "fontanería": "Fontanería",
+    "fontanero": "Fontanería",
+    "electricidad": "Electricidad",
+    "electricista": "Electricidad",
+    "albañilería": "Albañilería",
+    "albañil": "Albañilería",
+    "obra": "Contrata de Obra",
+    "pintura": "Pintura",
+    "pintor": "Pintura",
+    "cocina": "Cocina",
+    "muebles cocina": "Mobiliario Cocina",
+    "electrodomésticos": "Mobiliario Cocina",
+    "baño": "Baños",
+    "sanitarios": "Baños",
+    "suelo": "Suelos",
+    "suelos": "Suelos",
+    "parquet": "Suelos",
+    "ventanas": "Ventanas",
+    "carpintería": "Carpintería",
+    "puertas": "Puertas",
+    "cerrajería": "Cerrajería",
     # Compra items
-    "notaría": "compra_notaria",
-    "notario": "compra_notaria",
-    "registro": "compra_registro",
-    "gestoría": "compra_gestoria",
-    "gestor": "compra_gestoria",
-    "itp": "compra_itp",
-    "impuesto": "compra_itp",
+    "notaría": "Notaría",
+    "notario": "Notaría",
+    "registro": "Registro",
+    "gestoría": "Gestoría",
+    "gestor": "Gestoría",
+    "itp": "ITP",
+    "impuesto transmisiones": "ITP",
     # Venta items
-    "inmobiliaria": "venta_comision",
-    "comisión venta": "venta_comision",
+    "inmobiliaria": "Comisión Agencia",
+    "comisión venta": "Comisión Agencia",
+    "agencia": "Comisión Agencia",
 }
 
-# Human-readable labels for estudio keys
+# Human-readable labels (same as mapped values now)
 ESTUDIO_LABELS = {
-    "reforma_ac": "Aire Acondicionado",
-    "reforma_fontaneria": "Fontanería",
-    "reforma_electricidad": "Electricidad",
-    "reforma_albanileria": "Albañilería",
-    "reforma_pintura": "Pintura",
-    "reforma_cocina": "Cocina",
-    "reforma_bano": "Baño",
-    "reforma_suelos": "Suelos",
-    "reforma_ventanas": "Ventanas",
-    "reforma_carpinteria": "Carpintería",
-    "reforma_cerrajeria": "Cerrajería",
-    "compra_notaria": "Notaría (Compra)",
-    "compra_registro": "Registro (Compra)",
-    "compra_gestoria": "Gestoría (Compra)",
-    "compra_itp": "ITP",
-    "venta_comision": "Comisión Inmobiliaria",
+    "Aire Acondicionado": "Aire Acondicionado",
+    "Fontanería": "Fontanería",
+    "Electricidad": "Electricidad",
+    "Albañilería": "Albañilería",
+    "Pintura": "Pintura",
+    "Cocina": "Cocina",
+    "Mobiliario Cocina": "Mobiliario Cocina",
+    "Baños": "Baños",
+    "Suelos": "Suelos",
+    "Ventanas": "Ventanas",
+    "Carpintería": "Carpintería",
+    "Puertas": "Puertas",
+    "Cerrajería": "Cerrajería",
+    "Contrata de Obra": "Contrata de Obra",
+    "Notaría": "Notaría",
+    "Registro": "Registro",
+    "Gestoría": "Gestoría",
+    "ITP": "ITP",
+    "Comisión Agencia": "Comisión Agencia",
 }
 
 
@@ -609,26 +615,45 @@ def approve_extraction(document_id: str, estudio_key: Optional[str] = None) -> D
         property_id = doc.get("property_id")
         
         # Update Estudio Económico - add to Real column
-        # Get current estudio
-        estudio_result = sb.rpc("get_estudio_economico", {"p_property_id": property_id}).execute()
+        # Find the financial_item by item_name pattern (final_key is now an item_name pattern)
+        search_pattern = final_key  # e.g., "Aire Acondicionado"
         
-        if estudio_result.data and estudio_result.data.get("ok"):
-            items = estudio_result.data.get("items", [])
-            
-            # Find the matching item and update
-            for item in items:
-                if item.get("item_key") == final_key:
-                    current_real = item.get("real") or 0
-                    new_real = current_real + valor
-                    
-                    # Update via RPC
-                    sb.rpc("update_estudio_item", {
-                        "p_property_id": property_id,
-                        "p_item_key": final_key,
-                        "p_real": new_real
-                    }).execute()
-                    
-                    break
+        items_result = sb.table("financial_items")\
+            .select("id, item_name, real_amount")\
+            .eq("property_id", property_id)\
+            .ilike("item_name", f"%{search_pattern}%")\
+            .limit(1)\
+            .execute()
+        
+        if not items_result.data:
+            logger.warning(f"[approve_extraction] No financial_item found matching '{search_pattern}'")
+            # Still mark as approved, but note that we couldn't update Excel
+            sb.table("armario_documents")\
+                .update({"extraction_status": "approved"})\
+                .eq("id", document_id)\
+                .execute()
+            return {
+                "ok": True,
+                "message": f"Extracción aprobada pero no se encontró la partida '{search_pattern}' en el Excel",
+                "estudio_key": final_key,
+                "valor": valor,
+                "warning": "Item not found in financial_items"
+            }
+        
+        item = items_result.data[0]
+        current_real = item.get("real_amount") or 0
+        new_real = current_real + valor
+        
+        # Update the financial_item
+        sb.table("financial_items")\
+            .update({
+                "real_amount": new_real,
+                "updated_at": "now()"
+            })\
+            .eq("id", item["id"])\
+            .execute()
+        
+        logger.info(f"[approve_extraction] ✅ Updated {item['item_name']}: {current_real} → {new_real}")
         
         # Update document status
         sb.table("armario_documents")\
@@ -643,9 +668,11 @@ def approve_extraction(document_id: str, estudio_key: Optional[str] = None) -> D
         
         return {
             "ok": True,
-            "message": f"Valor de {valor}€ añadido a {label}",
+            "message": f"Valor de {valor:,.0f}€ añadido a {item['item_name']}",
             "estudio_key": final_key,
-            "valor": valor
+            "valor": valor,
+            "item_name": item["item_name"],
+            "new_total": new_real
         }
         
     except Exception as e:
