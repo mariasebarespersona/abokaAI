@@ -3,6 +3,7 @@ import React from 'react'
 import type { Metadata } from 'next'
 import Image from 'next/image'
 import { Inter, Lora } from 'next/font/google'
+import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration'
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -25,6 +26,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${inter.variable} ${lora.variable}`}>
       <body className="min-h-screen bg-[color:var(--bg-app)] font-sans text-[color:var(--text-primary)] selection:bg-[color:var(--brand-100)] selection:text-[color:var(--brand-900)]">
+        
+        {/* Service Worker for PWA & Push Notifications */}
+        <ServiceWorkerRegistration />
         
         {/* Modern Header - Clean & Professional */}
         <header className="sticky top-0 z-50 w-full border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-glass)] backdrop-blur-md transition-all duration-300">
