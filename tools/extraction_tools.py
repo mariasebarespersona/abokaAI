@@ -319,10 +319,13 @@ Tu tarea: Selecciona la categoría MÁS APROPIADA para clasificar esta factura.
 
 Reglas:
 1. Responde SOLO con el nombre EXACTO de la categoría (copia y pega)
-2. Si el concepto menciona armarios, vestidores, carpintería a medida → busca categoría con "Armarios" o "Carpintería"
-3. Si el concepto menciona cocina, muebles de cocina, electrodomésticos → busca categoría con "Cocina"
-4. Si el concepto menciona baños, sanitarios, griferías → busca categoría con "Baño" o "Sanitarios"
-5. Si no hay ninguna categoría que encaje bien, responde: NULL
+2. Si el concepto menciona armarios, vestidores, carpintería a medida → "Armarios y Carpintería"
+3. Si el concepto menciona cocina, muebles de cocina, electrodomésticos → "Mobiliario Cocina + Electros"
+4. Si el concepto menciona baños, sanitarios, griferías → "Sanitarios Baños + Griferías"
+5. Si el concepto menciona puertas, ventanas, cristales, vidrios → "Otros Materiales"
+6. Si el concepto menciona suelos, tarima, parquet, baldosas → "Tarima / Suelos"
+7. Si el concepto es de materiales de reforma pero NO encaja claramente en ninguna categoría específica → "Otros Materiales"
+8. SOLO responde NULL si el concepto NO es un gasto de reforma (ej: servicios legales, impuestos)
 
 Respuesta (solo el nombre de la categoría o NULL):"""
 
@@ -339,7 +342,11 @@ Respuesta (solo el nombre de la categoría o NULL):"""
         
         # Check if it's a valid category
         if answer.upper() == "NULL" or answer == "":
-            logger.info(f"[map_concept_to_estudio_llm] LLM returned NULL for concept: {concept}")
+            logger.info(f"[map_concept_to_estudio_llm] LLM returned NULL for concept: {concept}, using 'Otros Materiales' as fallback")
+            # Default to "Otros Materiales" for unclassified reforma expenses
+            for cat in categories:
+                if "otros materiales" in cat.lower():
+                    return cat
             return None
         
         # Verify it's in our categories (exact or case-insensitive match)
