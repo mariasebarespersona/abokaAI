@@ -3307,22 +3307,28 @@ async def upload_armario_document(
                 save_extraction_result
             )
             
+            logger.info(f"[API] ========== EXTRACTION DEBUG ==========")
+            logger.info(f"[API] Upload result keys: {result.keys() if result else 'None'}")
+            logger.info(f"[API] Upload result: {result}")
+            
             document_id = result.get("document_id")
             storage_path = result.get("storage_path")
             
-            logger.info(f"[API] Starting extraction for {filename}, document_id={document_id}")
+            logger.info(f"[API] document_id={document_id}, storage_path={storage_path}")
             
             if not document_id:
                 logger.warning(f"[API] No document_id returned from upload, skipping extraction")
                 raise Exception("No document_id from upload")
             
             # Extract data using GPT-4
+            logger.info(f"[API] Calling extract_document_data...")
             extraction = extract_document_data(
                 property_id=property_id,
                 document_id=document_id,
                 storage_path=storage_path,
                 file_bytes=file_bytes
             )
+            logger.info(f"[API] Extraction result: {extraction}")
             
             if extraction.get("success") and extraction.get("extracted_data"):
                 extracted_data = extraction["extracted_data"]
@@ -3352,7 +3358,7 @@ async def upload_armario_document(
                     # Save extraction to database
                     save_result = save_extraction_result(
                         document_id=document_id,
-                        extraction_data=extracted_data,
+                        extracted_data=extracted_data,
                         mapped_key=mapped_key
                     )
                     
@@ -3373,7 +3379,9 @@ async def upload_armario_document(
         
         except Exception as extract_error:
             # Don't fail upload if extraction fails
+            import traceback
             logger.warning(f"[API] Extraction failed (non-blocking): {extract_error}")
+            logger.warning(f"[API] Extraction traceback: {traceback.format_exc()}")
             extraction_result = {"success": False, "error": str(extract_error)}
         
         return JSONResponse({
