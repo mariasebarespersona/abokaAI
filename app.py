@@ -3670,17 +3670,20 @@ async def approve_extraction_api(request: Request):
             )
         
         # Update the financial_items table with the extracted value in 'real_amount'
+        # Note: mapped_key is the item_name (e.g., "Otros Materiales"), not item_key
+        logger.info(f"[API] Updating financial_items where item_name='{mapped_key}' with valor={valor}")
+        
         update_result = sb.table("financial_items")\
             .update({
                 "real_amount": valor,
                 "updated_at": "now()"
             })\
             .eq("property_id", property_id)\
-            .eq("item_key", mapped_key)\
+            .eq("item_name", mapped_key)\
             .execute()
         
         if not update_result.data:
-            logger.warning(f"[API] No financial item found with key {mapped_key} for property {property_id}")
+            logger.warning(f"[API] No financial item found with item_name '{mapped_key}' for property {property_id}")
         else:
             logger.info(f"[API] ✅ Updated financial item {mapped_key} with value {valor}")
         
