@@ -3358,8 +3358,10 @@ async def upload_armario_document(
                     # Save extraction to database
                     save_result = save_extraction_result(
                         document_id=document_id,
+                        property_id=property_id,
                         extracted_data=extracted_data,
-                        mapped_key=mapped_key
+                        mapped_estudio_key=mapped_key,
+                        confidence=mapping_confidence
                     )
                     
                     # Always return pending_approval so the modal shows
