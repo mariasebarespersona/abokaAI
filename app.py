@@ -3307,13 +3307,25 @@ async def upload_armario_document(
                 save_extraction_result
             )
             
-            logger.info(f"[API] Starting extraction for {filename}")
+            document_id = result.get("document_id")
+            storage_path = result.get("storage_path")
+            
+            logger.info(f"[API] Starting extraction for {filename}, document_id={document_id}")
+            
+            if not document_id:
+                logger.warning(f"[API] No document_id returned from upload, skipping extraction")
+                raise Exception("No document_id from upload")
             
             # Extract data using GPT-4
-            extraction = extract_document_data(file_bytes, filename, content_type)
+            extraction = extract_document_data(
+                property_id=property_id,
+                document_id=document_id,
+                storage_path=storage_path,
+                file_bytes=file_bytes
+            )
             
-            if extraction.get("success") and extraction.get("data"):
-                extracted_data = extraction["data"]
+            if extraction.get("success") and extraction.get("extracted_data"):
+                extracted_data = extraction["extracted_data"]
                 valor = extracted_data.get("valor_total")
                 concepto = extracted_data.get("concepto_detectado")
                 
@@ -3321,22 +3333,21 @@ async def upload_armario_document(
                 
                 # Map to Estudio Económico key using GPT with context
                 mapped_key = None
-                mapping_confidence = 0.0
+                mapping_confidence = 0.7  # Default confidence for LLM-based mapping
                 if concepto:
-                    mapped_key, mapping_confidence = map_concept_to_estudio(
-                        concepto=concepto,
-                        property_id=property_id,
-                        cajon=cajon,        # Pass context for better mapping
-                        subcajon=subcajon
+                    mapped_key = map_concept_to_estudio(
+                        concept=concepto,
+                        property_id=property_id
                     )
                     if mapped_key:
-                        logger.info(f"[API] Mapped to estudio key: {mapped_key} (confidence: {mapping_confidence})")
+                        logger.info(f"[API] Mapped to estudio key: {mapped_key}")
+                    else:
+                        logger.warning(f"[API] Could not map concept '{concepto}' to any estudio category")
                 
                 # Add mapping confidence to extracted data
                 extracted_data["mapping_confidence"] = mapping_confidence
                 
                 # Save extraction result - always show if we have valor
-                document_id = result.get("document_id")
                 if document_id and valor:
                     # Save extraction to database
                     save_result = save_extraction_result(
