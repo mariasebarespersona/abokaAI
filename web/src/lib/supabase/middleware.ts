@@ -47,27 +47,25 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Protected routes - redirect to login if not authenticated
-  const protectedPaths = ['/dashboard', '/properties', '/chat']
-  const isProtectedPath = protectedPaths.some(path => 
-    request.nextUrl.pathname.startsWith(path)
+  // Public paths that don't require authentication
+  const publicPaths = ['/login', '/signup', '/auth/callback']
+  const isPublicPath = publicPaths.some(path => 
+    request.nextUrl.pathname === path || request.nextUrl.pathname.startsWith(path)
   )
 
-  if (isProtectedPath && !user) {
-    // Redirect to login page
+  // If user is NOT logged in and trying to access a protected page, redirect to login
+  if (!user && !isPublicPath) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-    url.searchParams.set('redirect', request.nextUrl.pathname)
+    // Save the original URL to redirect back after login
+    if (request.nextUrl.pathname !== '/') {
+      url.searchParams.set('redirect', request.nextUrl.pathname)
+    }
     return NextResponse.redirect(url)
   }
 
-  // Redirect logged-in users away from auth pages
-  const authPaths = ['/login', '/signup']
-  const isAuthPath = authPaths.some(path => 
-    request.nextUrl.pathname === path
-  )
-
-  if (isAuthPath && user) {
+  // If user IS logged in and trying to access auth pages, redirect to home
+  if (user && isPublicPath) {
     const url = request.nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)
