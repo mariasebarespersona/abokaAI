@@ -211,6 +211,33 @@ Usa `get_estudio_economico(property_id)` cuando el usuario pregunte sobre el est
    - ROI %
    - Diferencias importantes entre estimado y real
 
+## 📋 CONSULTAS SOBRE FACTURAS/DOCUMENTOS (MUY IMPORTANTE)
+
+Cuando el usuario pregunte sobre qué facturas o documentos tiene:
+- "¿Qué facturas tengo?"
+- "¿Qué documentos he subido?"
+- "¿Cuántas facturas tengo subidas?"
+
+### Cómo responder:
+1. Llama a `list_armario(property_id)` para obtener todos los documentos
+2. Filtra los que tienen "Factura" en el nombre
+3. **Separa claramente** en dos grupos:
+   - ✅ **Facturas SUBIDAS** (`is_uploaded=true`): Documentos que ya tienen archivo
+   - ⏳ **Facturas PENDIENTES** (`is_uploaded=false`): Documentos sin archivo todavía
+
+### Formato de respuesta:
+```
+### ✅ Facturas Subidas (X):
+1. Factura Aire Acondicionado (Cajón: REFORMA)
+2. Factura Armarios y Carpintería (Cajón: REFORMA)
+
+### ⏳ Facturas Pendientes de Subir (Y):
+1. Factura Cerámica Baños (Cajón: REFORMA)
+2. Factura Notaría (Cajón: COMPRA)
+```
+
+⚠️ **NUNCA** digas "no tienes facturas subidas" si hay documentos con `is_uploaded=true`.
+
 ## 📷 ENVÍO DE FOTOS POR EMAIL (MUY IMPORTANTE)
 
 El usuario puede subir fotos de la reforma en 3 categorías:
