@@ -3335,14 +3335,17 @@ async def upload_armario_document(
                 # Add mapping confidence to extracted data
                 extracted_data["mapping_confidence"] = mapping_confidence
                 
-                # Save extraction result (status = pending_approval if confidence >= 0.5)
+                # Save extraction result - always show if we have valor
                 document_id = result.get("document_id")
-                if document_id and valor and mapping_confidence >= 0.5:
+                if document_id and valor:
+                    # Save extraction to database
                     save_result = save_extraction_result(
                         document_id=document_id,
                         extraction_data=extracted_data,
                         mapped_key=mapped_key
                     )
+                    
+                    # Always return pending_approval so the modal shows
                     extraction_result = {
                         "success": True,
                         "concepto": concepto,
@@ -3351,18 +3354,11 @@ async def upload_armario_document(
                         "confidence": mapping_confidence,
                         "status": "pending_approval"
                     }
-                    logger.info(f"[API] ✅ Extraction saved: {save_result}")
-                elif document_id and valor:
-                    # Low confidence - save but don't mark as pending
-                    extraction_result = {
-                        "success": True,
-                        "concepto": concepto,
-                        "valor": valor,
-                        "mapped_key": mapped_key,
-                        "confidence": mapping_confidence,
-                        "status": "low_confidence"
-                    }
-                    logger.info(f"[API] ⚠️ Low confidence mapping ({mapping_confidence}), not saving as pending")
+                    
+                    if mapping_confidence >= 0.5:
+                        logger.info(f"[API] ✅ Extraction saved with high confidence: {save_result}")
+                    else:
+                        logger.info(f"[API] ⚠️ Extraction saved with low confidence ({mapping_confidence}): {save_result}")
         
         except Exception as extract_error:
             # Don't fail upload if extraction fails

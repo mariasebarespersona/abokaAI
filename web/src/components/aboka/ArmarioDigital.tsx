@@ -918,12 +918,13 @@ function ArmarioDigitalContent({ propertyId, propertyName, onDocumentUploaded }:
                   </div>
                 </div>
                 
-                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                  <p className="text-sm text-blue-800">
-                    <span className="font-medium">Se añadirá a:</span> {extractionProposal.mappedKey.replace(/_/g, ' → ').replace('compra', 'COMPRA').replace('reforma', 'REFORMA').replace('financiero', 'FINANCIERO').replace('gestiones', 'GESTIONES')}
+                <div className={`p-3 rounded-lg border ${extractionProposal.confidence >= 0.5 ? 'bg-blue-50 border-blue-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <p className={`text-sm ${extractionProposal.confidence >= 0.5 ? 'text-blue-800' : 'text-amber-800'}`}>
+                    <span className="font-medium">Se añadirá a:</span> {extractionProposal.mappedKey?.replace(/_/g, ' → ').replace('compra', 'COMPRA').replace('reforma', 'REFORMA').replace('financiero', 'FINANCIERO').replace('gestiones', 'GESTIONES') || 'Categoría no detectada'}
                   </p>
-                  <p className="text-xs text-blue-600 mt-1">
-                    Columna: <span className="font-medium">Real</span> • Confianza: {Math.round(extractionProposal.confidence * 100)}%
+                  <p className={`text-xs mt-1 ${extractionProposal.confidence >= 0.5 ? 'text-blue-600' : 'text-amber-600'}`}>
+                    Columna: <span className="font-medium">Real</span> • Confianza: {Math.round((extractionProposal.confidence || 0) * 100)}%
+                    {extractionProposal.confidence < 0.5 && <span className="ml-2">⚠️ Verifica la categoría</span>}
                   </p>
                 </div>
               </div>
