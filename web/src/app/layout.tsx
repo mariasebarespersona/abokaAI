@@ -4,6 +4,8 @@ import type { Metadata } from 'next'
 import Image from 'next/image'
 import { Inter, Lora } from 'next/font/google'
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration'
+import { AuthProvider } from '@/components/auth/AuthProvider'
+import { UserMenu } from '@/components/auth/UserMenu'
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -26,53 +28,55 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${inter.variable} ${lora.variable}`}>
       <body className="min-h-screen bg-[color:var(--bg-app)] font-sans text-[color:var(--text-primary)] selection:bg-[color:var(--brand-100)] selection:text-[color:var(--brand-900)]">
-        
-        {/* Service Worker for PWA & Push Notifications */}
-        <ServiceWorkerRegistration />
-        
-        {/* Modern Header - Clean & Professional */}
-        <header className="sticky top-0 z-50 w-full border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-glass)] backdrop-blur-md transition-all duration-300">
-          <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between px-6">
-            
-            {/* Brand Identity */}
-            <div className="flex items-center gap-3 group cursor-pointer">
-              <div className="flex h-8 w-8 items-center justify-center rounded bg-[color:var(--brand-900)] text-white shadow-sm font-bold text-lg">
-                 A
+        <AuthProvider>
+          {/* Service Worker for PWA & Push Notifications */}
+          <ServiceWorkerRegistration />
+          
+          {/* Modern Header - Clean & Professional */}
+          <header className="sticky top-0 z-50 w-full border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-glass)] backdrop-blur-md transition-all duration-300">
+            <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between px-6">
+              
+              {/* Brand Identity */}
+              <div className="flex items-center gap-3 group cursor-pointer">
+                <div className="flex h-8 w-8 items-center justify-center rounded bg-[color:var(--brand-900)] text-white shadow-sm font-bold text-lg">
+                   A
+                </div>
+                <div className="flex flex-col justify-center">
+                  <h1 className="font-sans text-xl font-bold leading-none tracking-tight text-[color:var(--text-primary)]">
+                    ABOKA
+                  </h1>
+                  <span className="text-[10px] font-medium uppercase tracking-widest text-[color:var(--text-secondary)] opacity-80 group-hover:opacity-100 transition-opacity">
+                    AI Assistant
+                  </span>
+                </div>
               </div>
-              <div className="flex flex-col justify-center">
-                <h1 className="font-sans text-xl font-bold leading-none tracking-tight text-[color:var(--text-primary)]">
-                  ABOKA
-                </h1>
-                <span className="text-[10px] font-medium uppercase tracking-widest text-[color:var(--text-secondary)] opacity-80 group-hover:opacity-100 transition-opacity">
-                  AI Assistant
-                </span>
+
+              {/* Right side: Status + User Menu */}
+              <div className="flex items-center gap-4">
+                <div className="hidden sm:flex items-center gap-2 rounded-full border border-[color:var(--border-subtle)] bg-white/50 px-3 py-1 text-xs font-medium text-[color:var(--text-secondary)] shadow-sm backdrop-blur-sm">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500"></span>
+                  </span>
+                  System Online
+                </div>
+                <UserMenu />
               </div>
+              
             </div>
+          </header>
 
-            {/* Status Indicator / Assistant Label */}
-            <div className="flex items-center gap-4">
-               <div className="flex items-center gap-2 rounded-full border border-[color:var(--border-subtle)] bg-white/50 px-3 py-1 text-xs font-medium text-[color:var(--text-secondary)] shadow-sm backdrop-blur-sm">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500"></span>
-                </span>
-                System Online
-              </div>
-            </div>
-            
-          </div>
-        </header>
+          {/* Main Workspace - Full Width for Tools */}
+          <main className="mx-auto max-w-[1600px] px-4 py-6 md:px-6">
+            {children}
+          </main>
 
-        {/* Main Workspace - Full Width for Tools */}
-        <main className="mx-auto max-w-[1600px] px-4 py-6 md:px-6">
-          {children}
-        </main>
-
-        <footer className="mt-auto py-6 text-center">
-          <p className="font-sans text-xs text-[color:var(--text-tertiary)]">
-            Powered by ABOKA AI
-          </p>
-        </footer>
+          <footer className="mt-auto py-6 text-center">
+            <p className="font-sans text-xs text-[color:var(--text-tertiary)]">
+              Powered by ABOKA AI
+            </p>
+          </footer>
+        </AuthProvider>
       </body>
     </html>
   )
