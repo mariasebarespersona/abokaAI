@@ -1684,32 +1684,66 @@ def classify_document_with_llm(property_id: str, document_hint: str, filename: s
                 docs_list += f"  - [{status}] {doc['subcajon']} > {doc['document_name']} (id: {doc['id']})\n"
         
         # Step 3: Ask LLM to pick the best match
-        prompt = f"""Eres un experto en clasificación de documentos para reformas inmobiliarias.
+        prompt = f"""Eres un experto en clasificación de documentos para reformas inmobiliarias en España.
 
 DOCUMENTO A CLASIFICAR:
-- Descripción: "{document_hint}"
-- Archivo: "{filename}"
+- Descripción del email: "{document_hint}"
+- Nombre del archivo: "{filename}"
 
-ARMARIO DIGITAL DE LA PROPIEDAD (todos los slots disponibles):
+ARMARIO DIGITAL DE LA PROPIEDAD:
 {docs_list}
 
-Tu tarea: Encuentra el slot del Armario Digital donde MEJOR encaja este documento.
+═══════════════════════════════════════════════════════════════
+REGLAS DE CLASIFICACIÓN (MUY IMPORTANTE - LEE CON ATENCIÓN):
+═══════════════════════════════════════════════════════════════
 
-Reglas importantes:
-1. Las facturas de materiales de construcción (puertas, ventanas, suelos, cocina, baños, etc.) van en REFORMA > Partidas
-2. Las facturas de servicios recurrentes (luz, agua, gas, comunidad) van en GESTIONES > Suministros
-3. Los documentos de compra (escrituras, notas simples) van en COMPRA
-4. Busca coincidencias por nombre similar (ej: "Factura Puerta Cristal" → "Factura Puertas Cristal Interiores")
-5. Prefiere slots vacíos (⬚) sobre slots ya ocupados (✅) si hay match similar
+🏠 **COMPRA** = Documentos de la ADQUISICIÓN del inmueble
+   - Escrituras, contratos de compra
+   - Notas simples del registro
+   - Facturas de NOTARÍA, REGISTRO, GESTORÍA relacionadas con la compra
+   - Impuestos de la compra (ITP)
+   - NO incluye facturas de materiales de obra
 
-Responde SOLO con un JSON válido:
+🔨 **REFORMA** = Documentos de la OBRA/RENOVACIÓN
+   - ⭐ TODAS las facturas de materiales: armarios, carpintería, puertas, ventanas, suelos, cocina, baños, aire acondicionado, pintura, electricidad, fontanería, etc.
+   - Licencias de obra
+   - Contratos con constructores
+   - Presupuestos de reforma
+
+💰 **FINANCIERO** = Hipoteca y financiación
+   - Documentos del préstamo hipotecario
+   - Tasaciones
+   - Seguros
+
+📋 **GESTIONES** = Gastos recurrentes POST-reforma
+   - Facturas de LUZ, AGUA, GAS (suministros)
+   - Comunidad de propietarios
+   - Impuestos anuales (IBI)
+   - NO incluye facturas de materiales de construcción
+
+🏷️ **VENTA** = Cuando vendes la propiedad
+   - Dossier comercial
+   - Contratos de venta
+
+═══════════════════════════════════════════════════════════════
+
+Tu tarea: Busca el slot que MEJOR coincida con el documento.
+
+Consejos:
+- "Factura Armarios y Carpintería" → busca en REFORMA > Partidas un slot con nombre similar
+- "Factura Aire Acondicionado" → busca en REFORMA > Partidas
+- "Factura Luz" → busca en GESTIONES > Suministros
+- Si hay un slot con nombre casi idéntico, elige ese
+- Prefiere slots vacíos (⬚) si hay match similar
+
+Responde SOLO con JSON:
 {{
-    "document_id": "el-uuid-del-slot-elegido",
-    "document_name": "nombre exacto del slot",
-    "cajon": "nombre del cajón",
+    "document_id": "uuid-del-slot",
+    "document_name": "nombre exacto del slot elegido",
+    "cajon": "COMPRA|REFORMA|FINANCIERO|GESTIONES|VENTA|CIERRE",
     "subcajon": "nombre del subcajón",
     "confidence": 0.0-1.0,
-    "reasoning": "explicación breve de por qué elegiste este slot"
+    "reasoning": "Por qué elegiste este slot (1 frase)"
 }}
 """
 

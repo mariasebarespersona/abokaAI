@@ -537,14 +537,22 @@ export function MobileApprovalsView({ onSwitchToDesktop, onApprovalProcessed }: 
                     <div className="px-4 pb-4 border-t border-slate-700/50">
                       {/* Details */}
                       <div className="mt-3 p-3 bg-slate-900/50 rounded-xl text-sm">
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-2">
                           <div>
                             <span className="text-slate-500">Archivo:</span>
                             <p className="text-slate-300 truncate">{approval.original_filename}</p>
                           </div>
                           <div>
-                            <span className="text-slate-500">Destino:</span>
-                            <p className="text-slate-300">{approval.suggested_cajon || '—'}</p>
+                            <span className="text-slate-500">Destino sugerido:</span>
+                            <p className="text-slate-300 font-medium">
+                              {approval.suggested_cajon || '—'}
+                              {approval.suggested_subcajon && ` › ${approval.suggested_subcajon}`}
+                            </p>
+                            {approval.suggested_document_name && (
+                              <p className="text-emerald-400 text-sm mt-1">
+                                → {approval.suggested_document_name}
+                              </p>
+                            )}
                           </div>
                         </div>
                         {approval.sender_email && (
