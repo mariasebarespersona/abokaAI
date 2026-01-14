@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { X, Home, Building2, Plus, Trash2 } from 'lucide-react'
+import { X, Home, Building2, Plus, Trash2, Pencil } from 'lucide-react'
 import { MobileHomeProperty, STAGE_CONFIG } from '@/types/maninos'
 
 interface PropertiesDrawerProps {
@@ -25,10 +25,58 @@ export function PropertiesDrawer({
 }: PropertiesDrawerProps) {
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [editProperty, setEditProperty] = useState<{ id: string; name: string; address: string } | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ name: '', address: '' });
 
   const handleDeleteClick = (e: React.MouseEvent, property: MobileHomeProperty) => {
     e.stopPropagation(); // Prevent selecting the property
     setDeleteConfirm({ id: property.id, name: property.name || 'Unnamed Property' });
+  };
+
+  const handleEditClick = (e: React.MouseEvent, property: MobileHomeProperty) => {
+    e.stopPropagation(); // Prevent selecting the property
+    setEditProperty({ 
+      id: property.id, 
+      name: property.name || '', 
+      address: property.address || '' 
+    });
+    setEditForm({ 
+      name: property.name || '', 
+      address: property.address || '' 
+    });
+  };
+
+  const handleEditSubmit = async () => {
+    if (!editProperty) return;
+    
+    setIsEditing(true);
+    try {
+      const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080';
+      const response = await fetch(`${BACKEND_URL}/api/property/${editProperty.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editForm.name.trim() || null,
+          address: editForm.address.trim() || null,
+        }),
+      });
+      
+      const result = await response.json();
+      
+      if (result.ok) {
+        // Success - refresh properties list
+        onPropertyDeleted(); // Reuse this callback to refresh
+        setEditProperty(null);
+      } else {
+        alert(`Error: ${result.error || 'Failed to update property'}`);
+      }
+    } catch (error) {
+      console.error('Error updating property:', error);
+      alert('Error updating property. Please try again.');
+    } finally {
+      setIsEditing(false);
+    }
   };
 
   const handleDeleteConfirm = async () => {
@@ -91,14 +139,23 @@ export function PropertiesDrawer({
                             : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-md'
                         }`}
                     >
-                        {/* Delete button - positioned absolutely to avoid button nesting */}
-                        <button
+                        {/* Action buttons - positioned absolutely to avoid button nesting */}
+                        <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                          <button
+                            onClick={(e) => handleEditClick(e, prop)}
+                            className="p-1.5 rounded-lg hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition-colors"
+                            title="Edit property"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
                             onClick={(e) => handleDeleteClick(e, prop)}
-                            className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100 z-10"
+                            className="p-1.5 rounded-lg hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors"
                             title="Delete property"
-                        >
+                          >
                             <Trash2 size={14} />
-                        </button>
+                          </button>
+                        </div>
 
                         {/* Main content button */}
                         <button
@@ -212,6 +269,80 @@ export function PropertiesDrawer({
                   <>
                     <Trash2 size={16} />
                     Delete
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Property Modal */}
+      {editProperty && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setEditProperty(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-4 mb-6">
+              <div className="p-3 rounded-full bg-blue-100">
+                <Pencil className="text-blue-600" size={24} />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-lg text-slate-800 mb-1">Edit Property</h3>
+                <p className="text-sm text-slate-600">
+                  Update the name and address
+                </p>
+              </div>
+            </div>
+            
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Property Name
+                </label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="e.g., Casa Sebares"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Address
+                </label>
+                <input
+                  type="text"
+                  value={editForm.address}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, address: e.target.value }))}
+                  placeholder="e.g., Calle Mayor 123, Madrid"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setEditProperty(null)}
+                disabled={isEditing}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditSubmit}
+                disabled={isEditing}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isEditing ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Pencil size={16} />
+                    Save Changes
                   </>
                 )}
               </button>
