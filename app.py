@@ -4593,17 +4593,35 @@ async def email_inbound_cloudflare(request: Request):
         
         logger.info(f"[CLOUDFLARE EMAIL] Saved to temp: {temp_storage_path}")
         
-        # Classify document
-        from tools.docs_tools import classify_for_armario
-        classification = classify_for_armario(filename, document_hint)
+        # Classify document using LLM with full Armario context
+        from tools.docs_tools import classify_document_with_llm
+        classification = classify_document_with_llm(property_id, document_hint, filename)
+        
+        logger.info(f"[CLOUDFLARE EMAIL] LLM Classification: {classification}")
         
         suggested_cajon = classification.get("cajon")
         suggested_subcajon = classification.get("subcajon")
         suggested_document_name = classification.get("document_name") or document_hint
+        suggested_document_id = classification.get("document_id")  # The actual slot ID
+        llm_reasoning = classification.get("reasoning", "")
+        
+        # If LLM didn't find a match, fall back to simple classification
+        if not suggested_cajon:
+            logger.warning(f"[CLOUDFLARE EMAIL] LLM classification failed, using fallback")
+            from tools.docs_tools import classify_for_armario
+            fallback = classify_for_armario(filename, document_hint)
+            suggested_cajon = fallback.get("cajon", "REFORMA")
+            suggested_subcajon = fallback.get("subcajon", "Partidas")
+            suggested_document_name = fallback.get("document_name") or document_hint
+            suggested_document_id = None
+        
+        logger.info(f"[CLOUDFLARE EMAIL] Final classification: {suggested_cajon}/{suggested_subcajon}/{suggested_document_name}")
+        if llm_reasoning:
+            logger.info(f"[CLOUDFLARE EMAIL] LLM reasoning: {llm_reasoning}")
         
         # Save to pending_document_approvals
         approval_id = str(uuid.uuid4())
-        insert_result = sb.table("pending_document_approvals").insert({
+        approval_data = {
             "id": approval_id,
             "property_id": property_id,
             "property_name": property_data["name"],
@@ -4616,7 +4634,8 @@ async def email_inbound_cloudflare(request: Request):
             "content_type": content_type,
             "sender_email": from_email,
             "status": "pending"
-        }).execute()
+        }
+        insert_result = sb.table("pending_document_approvals").insert(approval_data).execute()
         
         logger.info(f"[CLOUDFLARE EMAIL] ✅ Created pending approval: {approval_id}")
         

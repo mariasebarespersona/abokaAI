@@ -1621,3 +1621,125 @@ def get_armario_document_url(property_id: str, cajon: str, subcajon: str, docume
     except Exception as e:
         logger.error(f"❌ [get_armario_document_url] Error: {e}")
         return None
+
+
+def classify_document_with_llm(property_id: str, document_hint: str, filename: str = "") -> Dict:
+    """
+    Intelligent document classification using LLM with full Armario Digital context.
+    
+    Instead of simple keyword matching, this function:
+    1. Fetches ALL documents from the property's Armario Digital
+    2. Sends them to the LLM with the document hint
+    3. LLM picks the best matching document slot
+    
+    Args:
+        property_id: UUID of the property
+        document_hint: Description from email (e.g., "Factura Puerta Cristal Interior")
+        filename: Original filename (optional, helps with classification)
+    
+    Returns:
+        {
+            "cajon": "REFORMA",
+            "subcajon": "Partidas",
+            "document_name": "Factura Puertas Cristal Interiores",
+            "document_id": "uuid-of-the-document-slot",
+            "confidence": 0.95,
+            "reasoning": "El documento menciona 'puerta cristal' y existe un slot exacto..."
+        }
+    """
+    import logging
+    import openai
+    import json
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"[classify_document_with_llm] Starting for property {property_id}, hint='{document_hint}'")
+        
+        # Step 1: Get ALL documents from the Armario Digital
+        all_docs = list_armario(property_id)
+        
+        if not all_docs:
+            logger.warning(f"[classify_document_with_llm] No documents found for property {property_id}")
+            return {"error": "No documents in Armario Digital"}
+        
+        # Step 2: Format documents for LLM (group by cajón)
+        docs_by_cajon = {}
+        for doc in all_docs:
+            cajon = doc.get("cajon", "OTROS")
+            if cajon not in docs_by_cajon:
+                docs_by_cajon[cajon] = []
+            docs_by_cajon[cajon].append({
+                "id": doc.get("id"),
+                "document_name": doc.get("document_name"),
+                "subcajon": doc.get("subcajon"),
+                "is_uploaded": doc.get("is_uploaded", False)
+            })
+        
+        # Build a readable list for the LLM
+        docs_list = ""
+        for cajon, docs in docs_by_cajon.items():
+            docs_list += f"\n## {cajon}\n"
+            for doc in docs:
+                status = "✅ ya subido" if doc["is_uploaded"] else "⬚ vacío"
+                docs_list += f"  - [{status}] {doc['subcajon']} > {doc['document_name']} (id: {doc['id']})\n"
+        
+        # Step 3: Ask LLM to pick the best match
+        prompt = f"""Eres un experto en clasificación de documentos para reformas inmobiliarias.
+
+DOCUMENTO A CLASIFICAR:
+- Descripción: "{document_hint}"
+- Archivo: "{filename}"
+
+ARMARIO DIGITAL DE LA PROPIEDAD (todos los slots disponibles):
+{docs_list}
+
+Tu tarea: Encuentra el slot del Armario Digital donde MEJOR encaja este documento.
+
+Reglas importantes:
+1. Las facturas de materiales de construcción (puertas, ventanas, suelos, cocina, baños, etc.) van en REFORMA > Partidas
+2. Las facturas de servicios recurrentes (luz, agua, gas, comunidad) van en GESTIONES > Suministros
+3. Los documentos de compra (escrituras, notas simples) van en COMPRA
+4. Busca coincidencias por nombre similar (ej: "Factura Puerta Cristal" → "Factura Puertas Cristal Interiores")
+5. Prefiere slots vacíos (⬚) sobre slots ya ocupados (✅) si hay match similar
+
+Responde SOLO con un JSON válido:
+{{
+    "document_id": "el-uuid-del-slot-elegido",
+    "document_name": "nombre exacto del slot",
+    "cajon": "nombre del cajón",
+    "subcajon": "nombre del subcajón",
+    "confidence": 0.0-1.0,
+    "reasoning": "explicación breve de por qué elegiste este slot"
+}}
+"""
+
+        client = openai.OpenAI()
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=500
+        )
+        
+        response_text = response.choices[0].message.content.strip()
+        
+        # Parse JSON response
+        if response_text.startswith("```"):
+            response_text = response_text.split("```")[1]
+            if response_text.startswith("json"):
+                response_text = response_text[4:]
+        response_text = response_text.strip()
+        
+        result = json.loads(response_text)
+        
+        logger.info(f"[classify_document_with_llm] ✅ LLM chose: {result.get('cajon')}/{result.get('subcajon')}/{result.get('document_name')}")
+        logger.info(f"[classify_document_with_llm] Reasoning: {result.get('reasoning')}")
+        
+        return result
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"[classify_document_with_llm] JSON parse error: {e}, response: {response_text[:200]}")
+        return {"error": f"Could not parse LLM response: {e}"}
+    except Exception as e:
+        logger.error(f"[classify_document_with_llm] Error: {e}")
+        return {"error": str(e)}
