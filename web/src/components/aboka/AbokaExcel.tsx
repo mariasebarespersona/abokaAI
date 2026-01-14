@@ -493,8 +493,8 @@ export function AbokaExcel({ propertyId, onCellUpdate }: AbokaExcelProps) {
               className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
               title="Reiniciar plantilla"
             >
-              <RefreshCw size={16} />
-            </button>
+            <RefreshCw size={16} />
+          </button>
           </div>
         </div>
       </div>

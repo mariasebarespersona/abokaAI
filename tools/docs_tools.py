@@ -1729,10 +1729,17 @@ REGLAS DE CLASIFICACIÓN (MUY IMPORTANTE - LEE CON ATENCIÓN):
 
 Tu tarea: Busca el slot que MEJOR coincida con el documento.
 
-Consejos:
-- "Factura Armarios y Carpintería" → busca en REFORMA > Partidas un slot con nombre similar
-- "Factura Aire Acondicionado" → busca en REFORMA > Partidas
-- "Factura Luz" → busca en GESTIONES > Suministros
+EJEMPLOS CONCRETOS:
+- "Factura Armarios y Carpintería" → REFORMA > Partidas (busca slot con "armarios" o "carpintería")
+- "Factura Puertas" → REFORMA > Partidas (material de construcción)
+- "Factura Aire Acondicionado" → REFORMA > Partidas
+- "Factura Electricidad obra" → REFORMA > Partidas
+- "Factura Luz" (consumo mensual) → GESTIONES > Suministros
+- "Factura Notaría compra" → COMPRA > Gastos
+
+ESTRATEGIA:
+- CUALQUIER factura de MATERIAL/OBRA (armarios, puertas, ventanas, suelos, pintura, etc.) → REFORMA
+- Solo facturas de SERVICIOS recurrentes (luz, agua, gas, comunidad) → GESTIONES
 - Si hay un slot con nombre casi idéntico, elige ese
 - Prefiere slots vacíos (⬚) si hay match similar
 

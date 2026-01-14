@@ -4153,19 +4153,31 @@ async def _parse_email_subject_with_llm(subject: str, existing_properties: list)
         
         prompt = f"""Analiza el siguiente asunto de email y extrae:
 1. El nombre de la propiedad/casa mencionada
-2. La descripción del documento
+2. La descripción COMPLETA del documento
 
 Asunto del email: "{subject}"
 
 Propiedades existentes en el sistema: {properties_list}
 
-IMPORTANTE:
+REGLAS IMPORTANTES:
 - El nombre de la propiedad debe coincidir (o ser muy similar) a una de las propiedades existentes
 - Si no puedes identificar claramente la propiedad, devuelve null
-- La descripción del documento es lo que describe el archivo adjunto (factura, presupuesto, contrato, etc.)
+- document_hint debe incluir la descripción COMPLETA del documento, NO solo el tipo
+  
+EJEMPLOS:
+- Asunto: "Casa Alberto - Factura Armarios y Carpinteria"
+  → {{"property_name": "Casa Alberto", "document_hint": "Factura Armarios y Carpinteria"}}
+  (NO "Factura" solo)
+
+- Asunto: "Piso Centro - Presupuesto Aire Acondicionado"
+  → {{"property_name": "Piso Centro", "document_hint": "Presupuesto Aire Acondicionado"}}
+  (NO "Presupuesto" solo)
+
+- Asunto: "Casa Sebares factura electricidad"
+  → {{"property_name": "Casa Sebares", "document_hint": "Factura Electricidad"}}
 
 Responde SOLO con un JSON válido, sin explicaciones:
-{{"property_name": "nombre exacto de la propiedad o null", "document_hint": "descripción del documento"}}"""
+{{"property_name": "nombre exacto de la propiedad o null", "document_hint": "descripción COMPLETA del documento"}}"""
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
