@@ -221,7 +221,8 @@ DOC_GROUPS = {
     # ═══════════════════════════════════════════════════════════════════
     "VENTA:Dossier Comercial": [
         "render", "infografía", "fotografías profesionales", "plano comercial",
-        "certificado energético nuevo", "home staging fotos"
+        "certificado energético etiqueta", "certificado energético informe", 
+        "certificado energético medidas", "home staging fotos"
     ],
     "VENTA:Cierre": [
         "contrato reserva", "oferta compra", "arras venta", "contrato arras venta",
@@ -415,7 +416,14 @@ KEYWORD_TO_DOCNAME = {
     "infografía": "Renders / Infografías 3D",
     "fotografías profesionales": "Fotografías Profesionales",
     "plano comercial": "Plano Comercial de Venta",
-    "certificado energético nuevo": "Certificado Energético Nuevo",
+    # Certificado Energético (3 slots)
+    "certificado energético etiqueta": "Certificado Energético - Etiqueta",
+    "certificado energético informe": "Certificado Energético - Informe",
+    "certificado energético medidas": "Certificado Energético - Medidas",
+    "etiqueta energética": "Certificado Energético - Etiqueta",
+    "informe energético": "Certificado Energético - Informe",
+    "medidas energéticas": "Certificado Energético - Medidas",
+    "certificado energético nuevo": "Certificado Energético - Etiqueta",  # Fallback for old references
     "home staging fotos": "Fotografías Home Staging",
     
     # Cierre de Venta

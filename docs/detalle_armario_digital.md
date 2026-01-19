@@ -226,12 +226,15 @@
 
 ### 5.1. Dossier Comercial
 
-| Documento | Descripción |
-|-----------|-------------|
-| Renders / Infografías 3D | Marketing visual |
-| Fotografías Profesionales | Estado final reformado |
-| Plano Comercial de Venta | Plano "bonito" con cotas y muebles |
-| Certificado Energético Nuevo | La letra habrá mejorado tras reforma |
+| Documento | Descripción | Obligatorio |
+|-----------|-------------|:-----------:|
+| Renders / Infografías 3D | Marketing visual | ⚪ |
+| Fotografías Profesionales | Estado final reformado | ⚪ |
+| Plano Comercial de Venta | Plano "bonito" con cotas y muebles | ⚪ |
+| **Certificado Energético - Etiqueta** | La etiqueta oficial de eficiencia energética (A-G) | ✅ |
+| **Certificado Energético - Informe** | Informe técnico detallado del certificador | ⚪ |
+| **Certificado Energético - Medidas** | Propuestas de mejora energética | ⚪ |
+| Fotografías Home Staging | Fotos del inmueble amueblado/decorado | ⚪ |
 
 ### 5.2. Cierre de Venta
 

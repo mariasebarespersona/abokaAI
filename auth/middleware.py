@@ -143,3 +143,4 @@ def require_owner(resource_user_id: str, current_user: AuthenticatedUser) -> boo
         )
     return True
 
+
