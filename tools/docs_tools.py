@@ -488,6 +488,70 @@ def _normalize(text: str) -> str:
     t = (text or "").lower()
     return re.sub(r"[^a-z0-9áéíóúüñ]+", " ", t)
 
+
+def _sanitize_filename_for_storage(filename: str) -> str:
+    """
+    Sanitize a filename for Supabase Storage (S3-compatible).
+    
+    Supabase Storage doesn't allow certain special characters in object keys.
+    This function normalizes Spanish characters and removes problematic symbols.
+    
+    Examples:
+        "ETIQUETA Nº 86.pdf" → "ETIQUETA No 86.pdf"
+        "Factura María.pdf" → "Factura Maria.pdf"
+        "Diseño José Ñoño.pdf" → "Diseno Jose Nono.pdf"
+    """
+    import unicodedata
+    
+    # Character replacements for Spanish and common special chars
+    replacements = {
+        'º': 'o',  # Masculine ordinal (Nº → No)
+        'ª': 'a',  # Feminine ordinal
+        'ñ': 'n',
+        'Ñ': 'N',
+        'á': 'a',
+        'Á': 'A',
+        'é': 'e',
+        'É': 'E',
+        'í': 'i',
+        'Í': 'I',
+        'ó': 'o',
+        'Ó': 'O',
+        'ú': 'u',
+        'Ú': 'U',
+        'ü': 'u',
+        'Ü': 'U',
+        '€': 'EUR',
+        '£': 'GBP',
+        '¿': '',
+        '¡': '',
+        '«': '',
+        '»': '',
+        '"': '',
+        '"': '',
+        ''': '',
+        ''': '',
+    }
+    
+    result = filename
+    for old_char, new_char in replacements.items():
+        result = result.replace(old_char, new_char)
+    
+    # Remove any remaining non-ASCII characters that could cause issues
+    # Keep: alphanumeric, spaces, dots, hyphens, underscores, parentheses
+    cleaned = ""
+    for char in result:
+        if char.isalnum() or char in ' .-_()[]':
+            cleaned += char
+        elif char == '/':
+            cleaned += '-'  # Replace slashes with hyphens
+    
+    # Collapse multiple spaces/hyphens
+    cleaned = re.sub(r'[ ]+', ' ', cleaned)
+    cleaned = re.sub(r'[-]+', '-', cleaned)
+    
+    return cleaned.strip()
+
 def propose_slot(filename: str, text_hint: str = "", property_id: str = "", file_bytes: Optional[bytes] = None) -> Dict:
     import logging
     logger = logging.getLogger(__name__)
@@ -1406,8 +1470,14 @@ def upload_to_armario(
     
     try:
         # 1. Subir archivo a Supabase Storage
-        storage_path = f"armario/{property_id}/{cajon}/{subcajon}/{filename}"
+        # Sanitize filename and subcajon to avoid Supabase Storage "InvalidKey" errors
+        # (special chars like º, ñ, accented vowels are not allowed in S3 keys)
+        safe_filename = _sanitize_filename_for_storage(filename)
+        safe_subcajon = _sanitize_filename_for_storage(subcajon)
+        storage_path = f"armario/{property_id}/{cajon}/{safe_subcajon}/{safe_filename}"
         content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        
+        logger.info(f"📁 [upload_to_armario] Original filename: {filename} → Sanitized: {safe_filename}")
         
         sb.storage.from_(BUCKET).upload(
             storage_path, 
